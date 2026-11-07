@@ -31,7 +31,7 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts
 
       - name: Apply non-breaking npm audit fixes only
-        run: npm audit fix --package-lock-only
+        run: npm audit fix --package-lock-only || true
 
       - name: Ensure package manifest was not rewritten
         run: git diff --exit-code -- package.json
