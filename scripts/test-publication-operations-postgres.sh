@@ -75,17 +75,17 @@ ABANDON="$("${PSQL[@]}" -c "select public.abandon_expired_publication_operation(
 assert_eq "$ABANDON" "t" "expired operation requires explicit abandonment"
 STALE_COMPLETE="$("${PSQL[@]}" -c "select public.complete_publication_operation('$OP_C')")"
 assert_eq "$STALE_COMPLETE" "f" "abandoned stale worker cannot commit"
+# A different issue referencing the destination prevents even cleanup eligibility.
+ISSUE_REF="30000000-0000-4000-8000-000000000004"
+insert_issue "$ISSUE_REF" 920004 draft registry-cross-issue-reference
+"${PSQL[@]}" -c "update public.issues set pdf_url='https://storage.invalid/issues/920002/published/$OP_C/edition.pdf' where id='$ISSUE_REF'" >/dev/null
+BLOCKED_PENDING="$("${PSQL[@]}" -c "select public.mark_publication_cleanup_pending('$OP_C',0)")"
+assert_eq "$BLOCKED_PENDING" "f" "cross-issue asset reference blocks cleanup eligibility"
+"${PSQL[@]}" -c "update public.issues set pdf_url=null where id='$ISSUE_REF'" >/dev/null
 CLEANUP_PENDING="$("${PSQL[@]}" -c "select public.mark_publication_cleanup_pending('$OP_C',0)")"
 assert_eq "$CLEANUP_PENDING" "t" "unreferenced abandoned operation becomes cleanup candidate"
 CLEANUP_RETRY="$("${PSQL[@]}" -c "select public.mark_publication_cleanup_pending('$OP_C',0)")"
 assert_eq "$CLEANUP_RETRY" "t" "recovery eligibility is idempotent"
-# A different issue referencing the same destination prevents cleanup completion.
-ISSUE_REF="30000000-0000-4000-8000-000000000004"
-insert_issue "$ISSUE_REF" 920004 draft registry-cross-issue-reference
-"${PSQL[@]}" -c "update public.issues set pdf_url='https://storage.invalid/issues/920002/published/$OP_C/edition.pdf' where id='$ISSUE_REF'" >/dev/null
-BLOCKED_CLEANUP="$("${PSQL[@]}" -c "select public.mark_publication_operation_cleaned('$OP_C')")"
-assert_eq "$BLOCKED_CLEANUP" "f" "cross-issue asset reference blocks cleanup completion"
-"${PSQL[@]}" -c "update public.issues set pdf_url=null where id='$ISSUE_REF'" >/dev/null
 CLEANED="$("${PSQL[@]}" -c "select public.mark_publication_operation_cleaned('$OP_C')")"
 assert_eq "$CLEANED" "t" "cleanup completion is recorded after global reference check"
 CLEANED_RETRY="$("${PSQL[@]}" -c "select public.mark_publication_operation_cleaned('$OP_C')")"
