@@ -62,16 +62,14 @@ export async function createIssue(formData: FormData) {
   const coverExtension = cover.type === "image/png" ? "png" : cover.type === "image/webp" ? "webp" : "jpg";
   const coverPath = `${basePath}-cover.${coverExtension}`;
 
-  const pdfUpload = await supabase.storage.from("issue-assets").upload(pdfPath, pdf, { contentType: "application/pdf", upsert: false });
+  const pdfUpload = await supabase.storage.from("issue-drafts").upload(pdfPath, pdf, { contentType: "application/pdf", upsert: false });
   if (pdfUpload.error) redirect("/admin?error=upload");
-  const coverUpload = await supabase.storage.from("issue-assets").upload(coverPath, cover, { contentType: cover.type, upsert: false });
+  const coverUpload = await supabase.storage.from("issue-drafts").upload(coverPath, cover, { contentType: cover.type, upsert: false });
   if (coverUpload.error) {
-    await supabase.storage.from("issue-assets").remove([pdfPath]);
+    await supabase.storage.from("issue-drafts").remove([pdfPath]);
     redirect("/admin?error=upload");
   }
 
-  const pdfUrl = supabase.storage.from("issue-assets").getPublicUrl(pdfPath).data.publicUrl;
-  const coverUrl = supabase.storage.from("issue-assets").getPublicUrl(coverPath).data.publicUrl;
   const slug = `${String(issueNumber).padStart(3, "0")}-${slugify(parsed.data.title)}`;
 
   const { error } = await supabase.from("issues").insert({
@@ -81,13 +79,13 @@ export async function createIssue(formData: FormData) {
     description: parsed.data.description,
     publication_date: parsed.data.publication_date,
     departments: parsed.data.departments,
-    pdf_url: pdfUrl,
-    cover_image_url: coverUrl,
+    pdf_url: pdfPath,
+    cover_image_url: coverPath,
     status: "draft",
   });
 
   if (error) {
-    await supabase.storage.from("issue-assets").remove([pdfPath, coverPath]);
+    await supabase.storage.from("issue-drafts").remove([pdfPath, coverPath]);
     redirect(error.code === "23505" ? "/admin?error=duplicate" : "/admin?error=save");
   }
 
@@ -101,10 +99,71 @@ export async function publishIssue(formData: FormData) {
   if (!context) redirect("/admin/login");
   const id = String(formData.get("issue_id") || "");
   if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
-  const { error } = await context.supabase.from("issues").update({ status: "published", updated_at: new Date().toISOString() }).eq("id", id).eq("status", "draft");
-  if (error) redirect("/admin?error=publish");
+
+  const { supabase } = context;
+  const { data: issue, error: readError } = await supabase
+    .from("issues")
+    .select("id, issue_number, pdf_url, cover_image_url, status")
+    .eq("id", id)
+    .eq("status", "draft")
+    .maybeSingle();
+
+  if (readError || !issue || !issue.pdf_url || !issue.cover_image_url) {
+    redirect("/admin?error=issue");
+  }
+
+  const pdfPath = String(issue.pdf_url);
+  const coverPath = String(issue.cover_image_url);
+  const expectedPrefix = `issues/${issue.issue_number}/`;
+  if (!pdfPath.startsWith(expectedPrefix) || !coverPath.startsWith(expectedPrefix)) {
+    redirect("/admin?error=issue");
+  }
+
+  const { data: pdfFile, error: pdfReadError } = await supabase.storage.from("issue-drafts").download(pdfPath);
+  if (pdfReadError || !pdfFile) redirect("/admin?error=publish-assets");
+  const { data: coverFile, error: coverReadError } = await supabase.storage.from("issue-drafts").download(coverPath);
+  if (coverReadError || !coverFile) redirect("/admin?error=publish-assets");
+
+  const pdfPublicPath = `issues/${issue.issue_number}/edition.pdf`;
+  const coverExtension = coverPath.split(".").pop() || "jpg";
+  const coverPublicPath = `issues/${issue.issue_number}/cover.${coverExtension}`;
+
+  const { error: pdfPublishError } = await supabase.storage
+    .from("issue-public")
+    .upload(pdfPublicPath, pdfFile, { contentType: "application/pdf", upsert: true });
+  if (pdfPublishError) redirect("/admin?error=publish-assets");
+
+  const coverType = coverExtension === "png" ? "image/png" : coverExtension === "webp" ? "image/webp" : "image/jpeg";
+  const { error: coverPublishError } = await supabase.storage
+    .from("issue-public")
+    .upload(coverPublicPath, coverFile, { contentType: coverType, upsert: true });
+  if (coverPublishError) {
+    await supabase.storage.from("issue-public").remove([pdfPublicPath]);
+    redirect("/admin?error=publish-assets");
+  }
+
+  const pdfUrl = supabase.storage.from("issue-public").getPublicUrl(pdfPublicPath).data.publicUrl;
+  const coverUrl = supabase.storage.from("issue-public").getPublicUrl(coverPublicPath).data.publicUrl;
+  const { error: updateError } = await supabase
+    .from("issues")
+    .update({
+      pdf_url: pdfUrl,
+      cover_image_url: coverUrl,
+      status: "published",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "draft");
+
+  if (updateError) {
+    await supabase.storage.from("issue-public").remove([pdfPublicPath, coverPublicPath]);
+    redirect("/admin?error=publish");
+  }
+
+  await supabase.storage.from("issue-drafts").remove([pdfPath, coverPath]);
   revalidatePath("/");
   revalidatePath("/issues");
   revalidatePath("/latest-issue");
+  revalidatePath(`/issues/${issue.issue_number}`);
   redirect("/admin?published=1");
 }
