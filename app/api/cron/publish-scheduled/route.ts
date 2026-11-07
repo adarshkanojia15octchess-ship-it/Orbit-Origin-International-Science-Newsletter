@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -23,13 +23,11 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const now = new Date();
   const nowIso = now.toISOString();
-  const { data: issues, error: issueReadError } = await admin
-    .from("issues")
-    .select("id, issue_number, pdf_url, cover_image_url")
-    .eq("status", "scheduled")
-    .lte("scheduled_at", nowIso)
-    .order("scheduled_at", { ascending: true })
-    .limit(20);
+  const claimToken = randomUUID();
+  const { data: issues, error: issueReadError } = await admin.rpc(
+    "claim_due_scheduled_issues",
+    { p_claim_token: claimToken, p_now: nowIso, p_limit: 20 },
+  );
 
   if (issueReadError) {
     return NextResponse.json({ error: "Could not load scheduled issues." }, { status: 500 });
@@ -38,11 +36,19 @@ export async function GET(request: NextRequest) {
   let issuesPublished = 0;
   let issuesFailed = 0;
 
+  async function releaseIssueClaim(issueId: string) {
+    await admin.from("issues").update({
+      publish_claim_token: null,
+      publish_claimed_at: null,
+    }).eq("id", issueId).eq("publish_claim_token", claimToken);
+  }
+
   for (const issue of issues || []) {
     const prefix = `issues/${issue.issue_number}/`;
     const pdfPath = String(issue.pdf_url || "");
     const coverPath = String(issue.cover_image_url || "");
     if (!pdfPath.startsWith(prefix) || !coverPath.startsWith(prefix)) {
+      await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
     }
@@ -52,6 +58,7 @@ export async function GET(request: NextRequest) {
       admin.storage.from("issue-drafts").download(coverPath),
     ]);
     if (pdfResult.error || !pdfResult.data || coverResult.error || !coverResult.data) {
+      await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
     }
@@ -66,7 +73,9 @@ export async function GET(request: NextRequest) {
       admin.storage.from("issue-public").upload(publicCoverPath, coverResult.data, { contentType: coverType, upsert: true }),
     ]);
     if (pdfUpload.error || coverUpload.error) {
-      await admin.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
+      // Keep any successfully copied object. A retry is idempotent (upsert),
+      // while deleting a shared path here could remove another worker's asset.
+      await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
     }
@@ -80,18 +89,22 @@ export async function GET(request: NextRequest) {
         cover_image_url: coverUrl,
         status: "published",
         scheduled_at: null,
+        publish_claim_token: null,
+        publish_claimed_at: null,
         updated_at: nowIso,
       })
       .eq("id", issue.id)
       .eq("status", "scheduled")
+      .eq("publish_claim_token", claimToken)
       .lte("scheduled_at", nowIso)
       .select("id")
       .maybeSingle();
 
     if (publishError || !published) {
-      // A competing worker may already have committed this issue as published.
-      // Never remove shared public paths after a failed conditional transition:
-      // those assets may now be the live files referenced by the winning row.
+      // Preserve public objects on ambiguous/competing transitions. They may
+      // already be referenced by a successful commit; a lease retry can safely
+      // overwrite them after the claim expires or is released.
+      await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
     }
