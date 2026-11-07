@@ -1,6 +1,6 @@
 # ORBIT & ORIGIN
 
-**Exploring the Universe, Understanding Our Place.**
+**OPEN TO CURIOSITY. COMMITTED TO EVIDENCE.**
 
 An independent international science and astronomy publication.
 
