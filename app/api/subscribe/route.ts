@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { z } from "zod";
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     if (rateError || allowed !== true) return redirectTo(request, "rate-limited");
 
     const email = parsed.data.email.toLowerCase();
-    const confirmationToken = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
+    const confirmationToken = randomBytes(32).toString("hex");
     const confirmationHash = hash(confirmationToken);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -87,6 +87,8 @@ export async function POST(request: NextRequest) {
           confirmation_token_hash: confirmationHash,
           confirmation_expires_at: expiresAt,
           consent_at: new Date().toISOString(),
+          confirmed_at: null,
+          unsubscribed_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id)
