@@ -89,7 +89,9 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (publishError || !published) {
-      await admin.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
+      // A competing worker may already have committed this issue as published.
+      // Never remove shared public paths after a failed conditional transition:
+      // those assets may now be the live files referenced by the winning row.
       issuesFailed += 1;
       continue;
     }
