@@ -103,6 +103,27 @@ else
   echo "PASS: cleaned source asset cannot be referenced again"
 fi
 
+# A scheduled operation is bound to both its operation lease and the current
+# issue claim. Reclaiming the issue invalidates the older operation token.
+ISSUE_S="30000000-0000-4000-8000-000000000005"
+OP_S="40000000-0000-4000-8000-000000000006"
+TOKEN_OLD="50000000-0000-4000-8000-000000000001"
+TOKEN_NEW="50000000-0000-4000-8000-000000000002"
+insert_issue "$ISSUE_S" 920005 scheduled registry-scheduled-stale
+CLAIMED="$("${PSQL[@]}" -c "select count(*) from public.claim_due_scheduled_issues('$TOKEN_OLD',now(),1) where id='$ISSUE_S'")"
+assert_eq "$CLAIMED" "1" "scheduled issue obtains its first claim"
+SOURCE_UPDATED_S="$("${PSQL[@]}" -c "select updated_at from public.issues where id='$ISSUE_S'")"
+SCHEDULED_OP="$("${PSQL[@]}" -c "select public.begin_publication_operation('$OP_S','$ISSUE_S','scheduled_publish','scheduled','issues/920005/source.pdf','issues/920005/source-cover.jpg','$SOURCE_UPDATED_S','issues/920005/published/$OP_S/edition.pdf','issues/920005/published/$OP_S/cover.jpg','https://storage.invalid/issues/920005/published/$OP_S/edition.pdf','https://storage.invalid/issues/920005/published/$OP_S/cover.jpg','$TOKEN_OLD',600)")"
+assert_eq "$SCHEDULED_OP" "$OP_S" "scheduled operation records claim ownership"
+"${PSQL[@]}" -c "update public.issues set publish_claimed_at=now()-interval '11 minutes' where id='$ISSUE_S'" >/dev/null
+RECLAIMED="$("${PSQL[@]}" -c "select count(*) from public.claim_due_scheduled_issues('$TOKEN_NEW',now(),1) where id='$ISSUE_S'")"
+assert_eq "$RECLAIMED" "1" "expired issue claim is reassigned"
+STALE_SCHEDULED="$("${PSQL[@]}" -c "select public.complete_publication_operation('$OP_S')")"
+assert_eq "$STALE_SCHEDULED" "f" "old scheduled operation cannot complete after claim replacement"
+"${PSQL[@]}" -c "update public.publication_operations set lease_expires_at=now()-interval '1 second' where operation_id='$OP_S'" >/dev/null
+ABANDON_SCHEDULED="$("${PSQL[@]}" -c "select public.abandon_expired_publication_operation('$OP_S',0)")"
+assert_eq "$ABANDON_SCHEDULED" "t" "stale scheduled operation can be safely abandoned"
+
 ISSUE_C="30000000-0000-4000-8000-000000000003"
 OP_D="40000000-0000-4000-8000-000000000004"
 OP_E="40000000-0000-4000-8000-000000000005"
