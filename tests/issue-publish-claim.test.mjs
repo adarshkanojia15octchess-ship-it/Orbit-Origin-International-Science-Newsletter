@@ -6,6 +6,10 @@ const migration = await readFile(
   new URL("../supabase/migrations/005_atomic_issue_publish_claims.sql", import.meta.url),
   "utf8",
 );
+const operationMigration = await readFile(
+  new URL("../supabase/migrations/006_durable_publication_operations.sql", import.meta.url),
+  "utf8",
+);
 const worker = await readFile(
   new URL("../app/api/cron/publish-scheduled/route.ts", import.meta.url),
   "utf8",
@@ -40,36 +44,69 @@ test("cron worker verifies public copies before changing issue status", () => {
   assert.match(worker, /coverVerification\.data\.size !== coverResult\.data\.size/);
 });
 
-test("failed competing publication transitions never delete shared public assets", () => {
-  assert.doesNotMatch(worker, /issue-public"\)\.remove\(\[publicPdfPath, publicCoverPath\]\)/);
-  const publishFailure = worker.split("if (publishError || !published)")[1]?.split("await admin.storage.from(\"issue-drafts\")")[0] ?? "";
-  assert.doesNotMatch(publishFailure, /\.remove\(/);
+test("failed competing publication transitions never delete operation-owned public assets", () => {
+  assert.doesNotMatch(worker, /issue-public"\)\.remove\(/);
+  assert.match(worker, /fail_publication_operation/);
+  assert.match(worker, /read_publication_operation/);
 });
 
-test("admin publishing preserves public assets when its conditional update loses", () => {
+test("admin publishing resolves losing or ambiguous transitions through the registry", () => {
   const publishAction = adminActions.split("export async function publishIssue")[1]?.split("const issueEditSchema")[0] ?? "";
-  const failureBranch = publishAction.split("if (updateError || !published)")[1]?.split("await supabase.storage.from(\"issue-drafts\")")[0] ?? "";
-  assert.match(publishAction, /\.select\("id"\)\s*\.maybeSingle\(\)/);
-  assert.doesNotMatch(failureBranch, /issue-public[\s\S]*\.remove\(/);
+  assert.match(publishAction, /begin_publication_operation/);
+  assert.match(publishAction, /complete_publication_operation/);
+  assert.match(publishAction, /read_publication_operation/);
+  assert.match(publishAction, /fail_publication_operation/);
+  assert.doesNotMatch(publishAction, /issue-public[\s\S]*\.remove\(/);
 });
 
-
-test("scheduled attempts publish into claim-owned immutable object paths", () => {
-  assert.match(worker, /published\/\$\{claimToken\}/);
-  assert.match(worker, /\.eq\("pdf_url", pdfPath\)/);
-  assert.match(worker, /\.eq\("cover_image_url", coverPath\)/);
+test("scheduled attempts use unique operation-owned paths and retain claim ownership", () => {
+  assert.match(worker, /published\/\$\{operationId\}/);
+  assert.match(worker, /p_operation_kind: "scheduled_publish"/);
+  assert.match(worker, /p_claim_token: claimToken/);
+  assert.match(worker, /complete_publication_operation/);
+  assert.match(worker, /read_publication_operation/);
 });
 
-test("manual publication uses an operation-owned namespace and source compare-and-set", () => {
+test("manual publication records its source version and operation-owned destination", () => {
   const publishAction = adminActions.split("export async function publishIssue")[1]?.split("const issueEditSchema")[0] ?? "";
   assert.match(publishAction, /published\/\$\{publicationOperation\}/);
-  assert.match(publishAction, /\.eq\("pdf_url", pdfPath\)/);
-  assert.match(publishAction, /\.eq\("cover_image_url", coverPath\)/);
+  assert.match(publishAction, /p_source_pdf_url: pdfPath/);
+  assert.match(publishAction, /p_source_cover_url: coverPath/);
+  assert.match(publishAction, /p_source_updated_at: issue\.updated_at/);
 });
 
-test("unpublish transitions the database before deleting public assets", () => {
+test("unpublish commits through the registry before deleting old public assets", () => {
   const unpublishAction = adminActions.split("export async function unpublishIssue")[1] ?? "";
-  const transitionIndex = unpublishAction.indexOf(".eq(\"status\", \"published\").select(\"id\")");
+  const transitionIndex = unpublishAction.indexOf('"complete_publication_operation"');
   const cleanupIndex = unpublishAction.indexOf('from("issue-public").remove([publicPdfPath, publicCoverPath])');
   assert.ok(transitionIndex >= 0 && cleanupIndex > transitionIndex);
+  assert.match(unpublishAction, /mark_publication_source_assets_cleaned/);
+});
+
+test("operation registry persists source and target ownership plus lifecycle state", () => {
+  for (const field of [
+    "operation_id", "issue_id", "operation_kind", "source_status",
+    "source_pdf_url", "source_cover_url", "source_updated_at",
+    "target_pdf_path", "target_cover_path", "claim_token",
+    "lease_expires_at", "state", "db_committed_at",
+    "source_cleanup_status", "cleanup_status", "recovery_attempts",
+  ]) assert.match(operationMigration, new RegExp(field));
+  assert.match(operationMigration, /publication_operations_one_active_per_issue/);
+});
+
+test("database completion atomically checks ownership and records the issue transition", () => {
+  assert.match(operationMigration, /complete_publication_operation/);
+  assert.match(operationMigration, /for update/i);
+  assert.match(operationMigration, /v_issue\.updated_at is distinct from v_op\.source_updated_at/);
+  assert.match(operationMigration, /state = 'committed'/);
+  assert.match(operationMigration, /db_committed_at = now\(\)/);
+});
+
+test("recovery requires expired lease, grace period, and global reference checks", () => {
+  assert.match(operationMigration, /abandon_expired_publication_operation/);
+  assert.match(operationMigration, /lease_expires_at <= now\(\) - make_interval/);
+  assert.match(operationMigration, /mark_publication_cleanup_pending/);
+  assert.match(operationMigration, /lock table public\.issues in share mode/i);
+  assert.match(operationMigration, /guard_retired_publication_assets/);
+  assert.doesNotMatch(operationMigration, /storage\.from\(|delete from storage/);
 });
