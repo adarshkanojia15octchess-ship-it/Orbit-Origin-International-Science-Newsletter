@@ -80,6 +80,21 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    const [pdfVerification, coverVerification] = await Promise.all([
+      admin.storage.from("issue-public").download(publicPdfPath),
+      admin.storage.from("issue-public").download(publicCoverPath),
+    ]);
+    if (
+      pdfVerification.error || !pdfVerification.data ||
+      coverVerification.error || !coverVerification.data ||
+      pdfVerification.data.size !== pdfResult.data.size ||
+      coverVerification.data.size !== coverResult.data.size
+    ) {
+      await releaseIssueClaim(issue.id);
+      issuesFailed += 1;
+      continue;
+    }
+
     const pdfUrl = admin.storage.from("issue-public").getPublicUrl(publicPdfPath).data.publicUrl;
     const coverUrl = admin.storage.from("issue-public").getPublicUrl(publicCoverPath).data.publicUrl;
     const { data: published, error: publishError } = await admin
