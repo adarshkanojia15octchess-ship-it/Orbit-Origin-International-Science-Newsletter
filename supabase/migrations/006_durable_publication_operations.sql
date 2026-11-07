@@ -91,7 +91,8 @@ begin
      or v_issue.cover_image_url is distinct from p_source_cover_url
      or v_issue.updated_at is distinct from p_source_updated_at
      or (p_operation_kind = 'scheduled_publish'
-         and v_issue.publish_claim_token is distinct from p_claim_token) then
+         and (v_issue.publish_claim_token is distinct from p_claim_token
+           or v_issue.publish_claimed_at <= now() - interval '10 minutes')) then
     return null;
   end if;
 
@@ -160,7 +161,8 @@ begin
      or v_issue.cover_image_url is distinct from v_op.source_cover_url
      or v_issue.updated_at is distinct from v_op.source_updated_at
      or (v_op.operation_kind = 'scheduled_publish'
-         and v_issue.publish_claim_token is distinct from v_op.claim_token) then
+         and (v_issue.publish_claim_token is distinct from v_op.claim_token
+           or v_issue.publish_claimed_at <= now() - interval '10 minutes')) then
     return false;
   end if;
 
