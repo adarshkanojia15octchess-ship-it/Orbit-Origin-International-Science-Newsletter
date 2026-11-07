@@ -1,0 +1,68 @@
+name: Refresh security lockfile
+
+on:
+  push:
+    branches: ["feature/**"]
+    paths:
+      - "package.json"
+      - ".github/workflows/refresh-security-lockfile.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Regenerate lockfile without lifecycle scripts
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Apply non-breaking npm audit fixes only
+        run: npm audit fix --package-lock-only
+
+      - name: Ensure package manifest was not rewritten
+        run: git diff --exit-code -- package.json
+
+      - name: Verify clean installation
+        run: npm ci
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Validate TypeScript
+        run: npm run typecheck
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build Next.js application
+        env:
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        run: npm run build
+
+      - name: Commit refreshed lockfile
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "No lockfile changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(deps): refresh audited npm lockfile"
+          git push origin "HEAD:${BRANCH_NAME}"
