@@ -32,6 +32,9 @@ jobs:
       - name: Install project dependencies
         run: npm install
 
+      - name: Run automated tests
+        run: npm test
+
       - name: Validate TypeScript
         run: npm run typecheck
 
