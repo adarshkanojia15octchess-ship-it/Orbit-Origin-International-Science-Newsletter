@@ -168,7 +168,12 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    await admin.storage.from("issue-drafts").remove([pdfPath, coverPath]);
+    const sourceCleanup = await admin.storage.from("issue-drafts").remove([pdfPath, coverPath]);
+    if (!sourceCleanup.error) {
+      await admin.rpc("mark_publication_source_assets_cleaned", {
+        p_operation_id: operationId,
+      });
+    }
     issuesPublished += 1;
   }
 
