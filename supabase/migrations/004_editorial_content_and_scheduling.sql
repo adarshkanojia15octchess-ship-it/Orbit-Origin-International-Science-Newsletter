@@ -14,7 +14,7 @@ create table if not exists public.articles (
   department text not null check (department in ('tapestry-of-worlds', 'frontier-tech', 'universal-record')),
   body_markdown text not null check (char_length(body_markdown) between 1 and 100000),
   images jsonb not null default '[]'::jsonb check (jsonb_typeof(images) = 'array'),
-  references jsonb not null default '[]'::jsonb check (jsonb_typeof(references) = 'array'),
+  source_references jsonb not null default '[]'::jsonb check (jsonb_typeof(source_references) = 'array'),
   status text not null default 'draft' check (status in ('draft', 'scheduled', 'published', 'archived')),
   scheduled_at timestamptz,
   published_at timestamptz,
