@@ -20,10 +20,11 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
     details: "Check the issue number, title, description, date and selected departments.",
     pdf: "Upload a valid PDF file no larger than 25 MB.",
     cover: "Upload a JPEG, PNG or WebP cover image no larger than 8 MB.",
-    upload: "The file upload failed. Check the issue-assets storage bucket and its administrator policies.",
+    upload: "The file upload failed. Check the issue-drafts and issue-public storage buckets and administrator policies.",
     duplicate: "That issue number or slug is already in use.",
     save: "The issue could not be saved.",
     publish: "The issue could not be published.",
+    "publish-assets": "The issue files could not be copied into public storage. Check storage policies and available space.",
     issue: "The selected issue is invalid.",
   };
 
