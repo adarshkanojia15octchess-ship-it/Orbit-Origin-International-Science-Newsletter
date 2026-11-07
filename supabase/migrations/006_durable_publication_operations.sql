@@ -262,10 +262,11 @@ begin
   end if;
   -- Check authoritative issue references before making an operation eligible
   -- for a future cleanup worker. This function never deletes storage objects.
+  lock table public.issues in share mode;
   if exists (
     select 1 from public.issues i
-     where (i.pdf_url in (v_op.target_pdf_url, v_op.target_pdf_path)
-         or i.cover_image_url in (v_op.target_cover_url, v_op.target_cover_path))
+     where i.pdf_url in (v_op.target_pdf_url, v_op.target_cover_url, v_op.target_pdf_path, v_op.target_cover_path)
+        or i.cover_image_url in (v_op.target_pdf_url, v_op.target_cover_url, v_op.target_pdf_path, v_op.target_cover_path)
   ) then
     return false;
   end if;
@@ -319,10 +320,11 @@ begin
   if v_op.state = 'cleaned' then return true; end if;
   if v_op.state <> 'cleanup_pending' or v_op.cleanup_status <> 'pending' then return false; end if;
   -- Recheck every issue immediately before recording cleanup completion.
+  lock table public.issues in share mode;
   if exists (
     select 1 from public.issues i
-     where i.pdf_url in (v_op.target_pdf_url, v_op.target_pdf_path)
-        or i.cover_image_url in (v_op.target_cover_url, v_op.target_cover_path)
+     where i.pdf_url in (v_op.target_pdf_url, v_op.target_cover_url, v_op.target_pdf_path, v_op.target_cover_path)
+        or i.cover_image_url in (v_op.target_pdf_url, v_op.target_cover_url, v_op.target_pdf_path, v_op.target_cover_path)
   ) then
     return false;
   end if;
@@ -354,10 +356,11 @@ begin
   if v_op.state <> 'committed' then return false; end if;
   if v_op.source_cleanup_status = 'complete' then return true; end if;
   if v_op.source_cleanup_status <> 'pending' then return false; end if;
+  lock table public.issues in share mode;
   if exists (
     select 1 from public.issues i
-     where i.pdf_url = v_op.source_pdf_url
-        or i.cover_image_url = v_op.source_cover_url
+     where i.pdf_url in (v_op.source_pdf_url, v_op.source_cover_url)
+        or i.cover_image_url in (v_op.source_pdf_url, v_op.source_cover_url)
   ) then
     return false;
   end if;
@@ -372,3 +375,41 @@ $$;
 
 revoke all on function public.mark_publication_source_assets_cleaned(uuid) from public, anon, authenticated;
 grant execute on function public.mark_publication_source_assets_cleaned(uuid) to service_role;
+
+-- Once an operation's objects are eligible for or have completed cleanup,
+-- reject any later attempt to make an issue reference those retired objects.
+create or replace function public.guard_retired_publication_assets()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (
+    select 1
+      from public.publication_operations op
+     where (
+       op.state in ('cleanup_pending', 'cleaned')
+       and (
+         new.pdf_url in (op.target_pdf_url, op.target_cover_url, op.target_pdf_path, op.target_cover_path)
+         or new.cover_image_url in (op.target_pdf_url, op.target_cover_url, op.target_pdf_path, op.target_cover_path)
+       )
+     ) or (
+       op.source_cleanup_status = 'complete'
+       and (
+         new.pdf_url in (op.source_pdf_url, op.source_cover_url)
+         or new.cover_image_url in (op.source_pdf_url, op.source_cover_url)
+       )
+     )
+  ) then
+    raise exception 'Issue cannot reference an asset retired by publication recovery'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists issues_guard_retired_publication_assets on public.issues;
+create trigger issues_guard_retired_publication_assets
+before insert or update of pdf_url, cover_image_url on public.issues
+for each row execute function public.guard_retired_publication_assets();
