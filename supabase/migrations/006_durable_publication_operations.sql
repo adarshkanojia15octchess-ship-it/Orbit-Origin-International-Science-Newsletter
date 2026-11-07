@@ -92,6 +92,7 @@ begin
      or v_issue.updated_at is distinct from p_source_updated_at
      or (p_operation_kind = 'scheduled_publish'
          and (v_issue.publish_claim_token is distinct from p_claim_token
+           or v_issue.publish_claimed_at is null
            or v_issue.publish_claimed_at <= now() - interval '10 minutes')) then
     return null;
   end if;
