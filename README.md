@@ -47,8 +47,12 @@ Create a Supabase project and configure:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `ADMIN_EMAIL` (the one authorised administrator email)
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only; required by subscription endpoints)
+- `RESEND_API_KEY` and `EMAIL_FROM` (Resend must have a verified sender domain)
+- `UNSUBSCRIBE_SECRET` and `SUBSCRIPTION_RATE_LIMIT_SECRET` (use independent, high-entropy secrets)
+- `NEXT_PUBLIC_SITE_URL` (the canonical deployed site URL)
 
-Apply `001_initial_schema.sql`, then `002_admin_and_issue_storage.sql`.
+Apply `001_initial_schema.sql`, `002_admin_and_issue_storage.sql`, then `003_subscription_security.sql`.
 
 ### Provision the administrator
 
@@ -75,17 +79,22 @@ Implemented on the Phase 2 feature branch:
 - Department landing pages, About, Editorial Standards, Contact and Privacy pages.
 - Latest issue redirect and issue-specific reading route.
 - Browser-native embedded PDF reader with open/download fallback.
+- Protected administrator login using Supabase Auth, trusted `app_metadata.role`, and an `ADMIN_EMAIL` allow-list.
+- Issue draft creation, PDF/cover validation and upload, draft listing, and immediate publication.
+- Private draft storage separated from public published assets.
+- Double opt-in subscription request, confirmation email, expiring confirmation token, duplicate handling, IP-keyed database rate limiting and unsubscribe confirmation.
 - Administrator sign-in, role/email checks, issue draft creation, PDF/cover upload, draft listing and immediate publication.
 - Private draft storage and public published-asset storage policies.
 - GitHub Actions workflow for TypeScript, ESLint and Next.js production build.
 
 Not yet implemented or not yet verified:
 
-- Double opt-in subscription endpoint and confirmation email.
-- Subscriber management and unsubscribe endpoint.
+- Subscriber management dashboard and subscriber export/deletion controls.
+- Resend campaign delivery, test sends, webhooks, bounce handling, retries and idempotent background queue.
 - Complete article-level HTML issue editor and reviewed PDF-to-HTML conversion.
 - Resend campaign delivery, test sends, webhooks, bounce handling, retries and idempotent background queue.
 - Scheduled publishing, issue editing/replacement workflow and full publication audit history.
+- Production-grade abuse prevention beyond the current honeypot and database rate limiter (e.g. Turnstile), and security review of all public endpoints.
 - PDF.js-specific reader controls (the current reader uses the browser's built-in PDF viewer).
 - Searchable article archive and filters.
 - Automated end-to-end tests and production deployment verification.
@@ -110,6 +119,6 @@ See `.env.example`. Never commit real credentials.
 
 ## Deployment
 
-The application is intended for Vercel or another Next.js-compatible host. Configure all required environment variables in the host, apply migrations to the production Supabase project, provision the administrator and verify the production domain before publishing.
+The application is intended for Vercel or another Next.js-compatible host. Configure all required environment variables in the host, apply all three migrations to the production Supabase project, provision the administrator, configure Resend DNS and verify the production domain before accepting real subscribers. The subscription endpoint uses a server-only service-role key and Resend API key; never expose either to the browser.
 
 External provider configuration and a live deployment have not yet been verified.
