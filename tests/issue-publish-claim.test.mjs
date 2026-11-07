@@ -111,3 +111,9 @@ test("recovery requires expired lease, grace period, and global reference checks
   assert.match(operationMigration, /guard_retired_publication_assets/);
   assert.doesNotMatch(operationMigration, /storage\.from\(|delete from storage/);
 });
+
+test("committed operations retain source cleanup state until verified", () => {
+  assert.match(operationMigration, /source_cleanup_status = 'pending'/);
+  assert.match(operationMigration, /mark_publication_source_assets_cleaned/);
+  assert.match(operationMigration, /source_cleanup_status = 'complete'/);
+});
