@@ -323,7 +323,8 @@ export async function unpublishIssue(formData: FormData) {
     redirect("/admin?error=unpublish-assets");
   }
 
-  const basePath = `issues/${issue.issue_number}/${randomUUID()}`;
+  const operationId = randomUUID();
+  const basePath = `issues/${issue.issue_number}/${operationId}`;
   const draftPdfPath = `${basePath}.pdf`;
   const extension = publicCoverPath.split(".").pop() || "jpg";
   const draftCoverPath = `${basePath}-cover.${extension}`;
@@ -331,7 +332,7 @@ export async function unpublishIssue(formData: FormData) {
   const { data: startedOperation, error: startOperationError } = await supabase.rpc(
     "begin_publication_operation",
     {
-      p_operation_id: basePath.split("/").pop(),
+      p_operation_id: operationId,
       p_issue_id: id,
       p_operation_kind: "unpublish",
       p_source_status: "published",
@@ -346,7 +347,6 @@ export async function unpublishIssue(formData: FormData) {
       p_lease_seconds: 600,
     },
   );
-  const operationId = basePath.split("/").pop() as string;
   if (startOperationError || startedOperation !== operationId) redirect("/admin?error=unpublish-conflict");
 
   const [pdfUpload, coverUpload] = await Promise.all([
