@@ -63,19 +63,63 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    const operationId = randomUUID();
     const extension = coverPath.split(".").pop() || "jpg";
-    const operationPrefix = `issues/${issue.issue_number}/published/${claimToken}`;
+    const operationPrefix = `issues/${issue.issue_number}/published/${operationId}`;
     const publicPdfPath = `${operationPrefix}/edition.pdf`;
     const publicCoverPath = `${operationPrefix}/cover.${extension}`;
     const coverType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
+
+    const { data: currentIssue, error: currentIssueError } = await admin
+      .from("issues")
+      .select("updated_at, status, publish_claim_token")
+      .eq("id", issue.id)
+      .eq("status", "scheduled")
+      .eq("publish_claim_token", claimToken)
+      .maybeSingle();
+    if (currentIssueError || !currentIssue) {
+      await releaseIssueClaim(issue.id);
+      issuesFailed += 1;
+      continue;
+    }
+
+    const pdfUrl = admin.storage.from("issue-public").getPublicUrl(publicPdfPath).data.publicUrl;
+    const coverUrl = admin.storage.from("issue-public").getPublicUrl(publicCoverPath).data.publicUrl;
+    const { data: startedOperation, error: startOperationError } = await admin.rpc(
+      "begin_publication_operation",
+      {
+        p_operation_id: operationId,
+        p_issue_id: issue.id,
+        p_operation_kind: "scheduled_publish",
+        p_source_status: "scheduled",
+        p_source_pdf_url: pdfPath,
+        p_source_cover_url: coverPath,
+        p_source_updated_at: currentIssue.updated_at,
+        p_target_pdf_path: publicPdfPath,
+        p_target_cover_path: publicCoverPath,
+        p_target_pdf_url: pdfUrl,
+        p_target_cover_url: coverUrl,
+        p_claim_token: claimToken,
+        p_lease_seconds: 600,
+      },
+    );
+    if (startOperationError || startedOperation !== operationId) {
+      await releaseIssueClaim(issue.id);
+      issuesFailed += 1;
+      continue;
+    }
 
     const [pdfUpload, coverUpload] = await Promise.all([
       admin.storage.from("issue-public").upload(publicPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: true }),
       admin.storage.from("issue-public").upload(publicCoverPath, coverResult.data, { contentType: coverType, upsert: true }),
     ]);
     if (pdfUpload.error || coverUpload.error) {
-      // Keep any successfully copied object. A retry is idempotent (upsert),
-      // while deleting a shared path here could remove another worker's asset.
+      // Record the failed attempt and preserve any partial operation-owned
+      // objects for later ownership-checked reconciliation.
+      await admin.rpc("fail_publication_operation", {
+        p_operation_id: operationId,
+        p_failure_reason: "One or more public asset uploads failed",
+      });
       await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
@@ -91,37 +135,34 @@ export async function GET(request: NextRequest) {
       pdfVerification.data.size !== pdfResult.data.size ||
       coverVerification.data.size !== coverResult.data.size
     ) {
+      await admin.rpc("fail_publication_operation", {
+        p_operation_id: operationId,
+        p_failure_reason: "Uploaded asset verification failed",
+      });
       await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
     }
 
-    const pdfUrl = admin.storage.from("issue-public").getPublicUrl(publicPdfPath).data.publicUrl;
-    const coverUrl = admin.storage.from("issue-public").getPublicUrl(publicCoverPath).data.publicUrl;
-    const { data: published, error: publishError } = await admin
-      .from("issues")
-      .update({
-        pdf_url: pdfUrl,
-        cover_image_url: coverUrl,
-        status: "published",
-        scheduled_at: null,
-        publish_claim_token: null,
-        publish_claimed_at: null,
-        updated_at: nowIso,
-      })
-      .eq("id", issue.id)
-      .eq("status", "scheduled")
-      .eq("publish_claim_token", claimToken)
-      .eq("pdf_url", pdfPath)
-      .eq("cover_image_url", coverPath)
-      .lte("scheduled_at", nowIso)
-      .select("id")
-      .maybeSingle();
-
-    if (publishError || !published) {
-      // Preserve public objects on ambiguous/competing transitions. They may
-      // already be referenced by a successful commit; a lease retry can safely
-      // overwrite them after the claim expires or is released.
+    const { data: completed, error: completeError } = await admin.rpc(
+      "complete_publication_operation",
+      { p_operation_id: operationId },
+    );
+    let operationCommitted = !completeError && completed === true;
+    if (!operationCommitted) {
+      // Resolve a lost RPC response from the durable operation record before
+      // treating the uploaded assets as abandoned.
+      const { data: operationRows } = await admin.rpc(
+        "read_publication_operation",
+        { p_operation_id: operationId },
+      );
+      operationCommitted = operationRows?.[0]?.state === "committed";
+    }
+    if (!operationCommitted) {
+      await admin.rpc("fail_publication_operation", {
+        p_operation_id: operationId,
+        p_failure_reason: completeError?.message || "Conditional scheduled publication did not commit",
+      });
       await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
