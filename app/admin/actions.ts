@@ -124,9 +124,11 @@ export async function publishIssue(formData: FormData) {
   const { data: coverFile, error: coverReadError } = await supabase.storage.from("issue-drafts").download(coverPath);
   if (coverReadError || !coverFile) redirect("/admin?error=publish-assets");
 
-  const pdfPublicPath = `issues/${issue.issue_number}/edition.pdf`;
+  const publicationOperation = randomUUID();
+  const publicPrefix = `issues/${issue.issue_number}/published/${publicationOperation}`;
+  const pdfPublicPath = `${publicPrefix}/edition.pdf`;
   const coverExtension = coverPath.split(".").pop() || "jpg";
-  const coverPublicPath = `issues/${issue.issue_number}/cover.${coverExtension}`;
+  const coverPublicPath = `${publicPrefix}/cover.${coverExtension}`;
 
   const { error: pdfPublishError } = await supabase.storage
     .from("issue-public")
@@ -155,6 +157,8 @@ export async function publishIssue(formData: FormData) {
     })
     .eq("id", id)
     .in("status", ["draft", "scheduled"])
+    .eq("pdf_url", pdfPath)
+    .eq("cover_image_url", coverPath)
     .select("id")
     .maybeSingle();
 
@@ -304,12 +308,6 @@ export async function unpublishIssue(formData: FormData) {
     redirect("/admin?error=unpublish-assets");
   }
 
-  const { error: removeError } = await supabase.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
-  if (removeError) {
-    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
-    redirect("/admin?error=unpublish-assets");
-  }
-
   const { data: unpublished, error: updateError } = await supabase.from("issues").update({
     pdf_url: draftPdfPath,
     cover_image_url: draftCoverPath,
@@ -327,6 +325,12 @@ export async function unpublishIssue(formData: FormData) {
     ]);
     redirect("/admin?error=unpublish");
   }
+
+  // The database no longer references the public objects. Only now may they be
+  // removed; if storage cleanup fails, the private copies remain available for
+  // recovery and the issue remains safely unpublished.
+  const { error: removeError } = await supabase.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
+  if (removeError) redirect("/admin?error=unpublish-cleanup");
 
   revalidatePath("/");
   revalidatePath("/issues");

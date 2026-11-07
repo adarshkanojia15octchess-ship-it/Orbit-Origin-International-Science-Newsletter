@@ -52,3 +52,24 @@ test("admin publishing preserves public assets when its conditional update loses
   assert.match(publishAction, /\.select\("id"\)\s*\.maybeSingle\(\)/);
   assert.doesNotMatch(failureBranch, /issue-public[\s\S]*\.remove\(/);
 });
+
+
+test("scheduled attempts publish into claim-owned immutable object paths", () => {
+  assert.match(worker, /published\/\$\{claimToken\}/);
+  assert.match(worker, /\.eq\("pdf_url", pdfPath\)/);
+  assert.match(worker, /\.eq\("cover_image_url", coverPath\)/);
+});
+
+test("manual publication uses an operation-owned namespace and source compare-and-set", () => {
+  const publishAction = adminActions.split("export async function publishIssue")[1]?.split("const issueEditSchema")[0] ?? "";
+  assert.match(publishAction, /published\/\$\{publicationOperation\}/);
+  assert.match(publishAction, /\.eq\("pdf_url", pdfPath\)/);
+  assert.match(publishAction, /\.eq\("cover_image_url", coverPath\)/);
+});
+
+test("unpublish transitions the database before deleting public assets", () => {
+  const unpublishAction = adminActions.split("export async function unpublishIssue")[1] ?? "";
+  const transitionIndex = unpublishAction.indexOf(".eq(\"status\", \"published\").select(\"id\")");
+  const cleanupIndex = unpublishAction.indexOf('from("issue-public").remove([publicPdfPath, publicCoverPath])');
+  assert.ok(transitionIndex >= 0 && cleanupIndex > transitionIndex);
+});

@@ -64,8 +64,9 @@ export async function GET(request: NextRequest) {
     }
 
     const extension = coverPath.split(".").pop() || "jpg";
-    const publicPdfPath = `issues/${issue.issue_number}/edition.pdf`;
-    const publicCoverPath = `issues/${issue.issue_number}/cover.${extension}`;
+    const operationPrefix = `issues/${issue.issue_number}/published/${claimToken}`;
+    const publicPdfPath = `${operationPrefix}/edition.pdf`;
+    const publicCoverPath = `${operationPrefix}/cover.${extension}`;
     const coverType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
 
     const [pdfUpload, coverUpload] = await Promise.all([
@@ -111,6 +112,8 @@ export async function GET(request: NextRequest) {
       .eq("id", issue.id)
       .eq("status", "scheduled")
       .eq("publish_claim_token", claimToken)
+      .eq("pdf_url", pdfPath)
+      .eq("cover_image_url", coverPath)
       .lte("scheduled_at", nowIso)
       .select("id")
       .maybeSingle();
