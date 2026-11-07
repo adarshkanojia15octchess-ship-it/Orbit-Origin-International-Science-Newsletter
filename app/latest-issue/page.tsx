@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Issue } from "@/lib/types";
@@ -5,6 +6,7 @@ import type { Issue } from "@/lib/types";
 export const metadata = { title: "Latest Issue" };
 
 export default async function LatestIssuePage() {
+  let issueNumber: number | null = null;
   try {
     const db = await createClient();
     const { data, error } = await db
@@ -16,15 +18,18 @@ export default async function LatestIssuePage() {
       .maybeSingle();
     if (error) throw error;
     const latest = data as Pick<Issue, "issue_number"> | null;
-    if (!latest) notFound();
-    redirect(`/issues/${latest.issue_number}`);
+    issueNumber = latest?.issue_number ?? null;
   } catch {
     return (
       <main className="page-shell">
         <span className="kicker">Latest edition</span>
-        <h1>No published issue found.</h1>
-        <p className="muted">The latest edition will appear here after an issue is published.</p>
+        <h1>Publication database unavailable.</h1>
+        <p className="muted">The latest edition cannot be loaded at the moment.</p>
+        <Link href="/issues">Browse the archive ↗</Link>
       </main>
     );
   }
+
+  if (!issueNumber) notFound();
+  redirect(`/issues/${issueNumber}`);
 }
