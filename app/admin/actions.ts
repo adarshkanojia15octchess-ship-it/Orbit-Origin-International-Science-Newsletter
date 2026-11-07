@@ -194,7 +194,12 @@ export async function publishIssue(formData: FormData) {
     redirect("/admin?error=publish");
   }
 
-  await supabase.storage.from("issue-drafts").remove([pdfPath, coverPath]);
+  const sourceCleanup = await supabase.storage.from("issue-drafts").remove([pdfPath, coverPath]);
+  if (!sourceCleanup.error) {
+    await supabase.rpc("mark_publication_source_assets_cleaned", {
+      p_operation_id: publicationOperation,
+    });
+  }
   revalidatePath("/");
   revalidatePath("/issues");
   revalidatePath("/latest-issue");
@@ -381,6 +386,9 @@ export async function unpublishIssue(formData: FormData) {
   // recovery and the issue remains safely unpublished.
   const { error: removeError } = await supabase.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
   if (removeError) redirect("/admin?error=unpublish-cleanup");
+  await supabase.rpc("mark_publication_source_assets_cleaned", {
+    p_operation_id: operationId,
+  });
 
   revalidatePath("/");
   revalidatePath("/issues");
