@@ -144,7 +144,7 @@ export async function publishIssue(formData: FormData) {
 
   const pdfUrl = supabase.storage.from("issue-public").getPublicUrl(pdfPublicPath).data.publicUrl;
   const coverUrl = supabase.storage.from("issue-public").getPublicUrl(coverPublicPath).data.publicUrl;
-  const { error: updateError } = await supabase
+  const { data: published, error: updateError } = await supabase
     .from("issues")
     .update({
       pdf_url: pdfUrl,
@@ -154,10 +154,14 @@ export async function publishIssue(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .in("status", ["draft", "scheduled"]);
+    .in("status", ["draft", "scheduled"])
+    .select("id")
+    .maybeSingle();
 
-  if (updateError) {
-    await supabase.storage.from("issue-public").remove([pdfPublicPath, coverPublicPath]);
+  if (updateError || !published) {
+    // A competing publisher may have won the conditional transition. The
+    // public object paths are shared and may now be live; preserve them for
+    // the winner and leave draft copies available for recovery.
     redirect("/admin?error=publish");
   }
 
@@ -306,20 +310,21 @@ export async function unpublishIssue(formData: FormData) {
     redirect("/admin?error=unpublish-assets");
   }
 
-  const { error: updateError } = await supabase.from("issues").update({
+  const { data: unpublished, error: updateError } = await supabase.from("issues").update({
     pdf_url: draftPdfPath,
     cover_image_url: draftCoverPath,
     status: "draft",
     scheduled_at: null,
     updated_at: new Date().toISOString(),
-  }).eq("id", id).eq("status", "published");
+  }).eq("id", id).eq("status", "published").select("id").maybeSingle();
 
-  if (updateError) {
+  if (updateError || !unpublished) {
+    // Restore public objects before returning. Keep the newly copied private
+    // files as recovery material if the database result was ambiguous.
     await Promise.all([
       supabase.storage.from("issue-public").upload(publicPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: true }),
       supabase.storage.from("issue-public").upload(publicCoverPath, coverResult.data, { contentType: coverType, upsert: true }),
     ]);
-    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
     redirect("/admin?error=unpublish");
   }
 
