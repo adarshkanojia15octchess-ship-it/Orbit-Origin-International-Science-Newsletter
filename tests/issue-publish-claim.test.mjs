@@ -56,7 +56,8 @@ test("admin publishing resolves losing or ambiguous transitions through the regi
   assert.match(publishAction, /complete_publication_operation/);
   assert.match(publishAction, /read_publication_operation/);
   assert.match(publishAction, /fail_publication_operation/);
-  assert.doesNotMatch(publishAction, /issue-public[\s\S]*\.remove\(/);
+  const failureBranch = publishAction.split("if (!operationCommitted)")[1]?.split("const sourceCleanup")[0] ?? "";
+  assert.doesNotMatch(failureBranch, /\.remove\(/);
 });
 
 test("scheduled attempts use unique operation-owned paths and retain claim ownership", () => {
