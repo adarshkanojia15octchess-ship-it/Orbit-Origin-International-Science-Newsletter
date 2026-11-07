@@ -52,7 +52,7 @@ Create a Supabase project and configure:
 - `UNSUBSCRIBE_SECRET` and `SUBSCRIPTION_RATE_LIMIT_SECRET` (use independent, high-entropy secrets)
 - `NEXT_PUBLIC_SITE_URL` (the canonical deployed site URL)
 
-Apply `001_initial_schema.sql`, `002_admin_and_issue_storage.sql`, then `003_subscription_security.sql`.
+Apply `001_initial_schema.sql`, `002_admin_and_issue_storage.sql`, `003_subscription_security.sql`, then `004_editorial_content_and_scheduling.sql`.
 
 ### Provision the administrator
 
@@ -80,7 +80,11 @@ Implemented on the Phase 2 feature branch:
 - Latest issue redirect and issue-specific reading route.
 - Browser-native embedded PDF reader with open/download fallback.
 - Protected administrator login using Supabase Auth, trusted `app_metadata.role`, and an `ADMIN_EMAIL` allow-list.
-- Issue draft creation, PDF/cover validation and upload, draft listing, and immediate publication.
+- Issue draft creation, PDF/cover validation and upload, issue metadata editing, scheduling, cancellation, immediate publishing and unpublishing with assets returned to private storage.
+- Structured editorial article drafts with headline, author, department, Markdown body, HTTPS images/captions, source references, issue association, publishing, scheduling, unpublishing and archiving.
+- Public article archive with title search and department filtering; public article reading pages.
+- Issue archive search by title with department and year filters.
+- Authenticated scheduled publication endpoint for due issues and articles, called by Vercel Cron every five minutes.
 - Private draft storage separated from public published assets.
 - Double opt-in subscription request, confirmation email, expiring confirmation token, duplicate handling, IP-keyed database rate limiting and unsubscribe confirmation.
 - Administrator sign-in, role/email checks, issue draft creation, PDF/cover upload, draft listing and immediate publication.
@@ -91,9 +95,9 @@ Not yet implemented or not yet verified:
 
 - Subscriber management dashboard and subscriber export/deletion controls.
 - Resend campaign delivery, test sends, webhooks, bounce handling, retries and idempotent background queue.
-- Complete article-level HTML issue editor and reviewed PDF-to-HTML conversion.
+- Complete article-level visual Markdown editor and reviewed PDF-to-HTML conversion. The current article body is stored as Markdown and displayed as readable preformatted text, not rendered rich Markdown.
 - Resend campaign delivery, test sends, webhooks, bounce handling, retries and idempotent background queue.
-- Scheduled publishing, issue editing/replacement workflow and full publication audit history.
+- Full publication audit history and robust scheduled-publication retry monitoring.
 - Production-grade abuse prevention beyond the current honeypot and database rate limiter (e.g. Turnstile), and security review of all public endpoints.
 - PDF.js-specific reader controls (the current reader uses the browser's built-in PDF viewer).
 - Searchable article archive and filters.
@@ -121,4 +125,4 @@ See `.env.example`. Never commit real credentials.
 
 The application is intended for Vercel or another Next.js-compatible host. Configure all required environment variables in the host, apply all three migrations to the production Supabase project, provision the administrator, configure Resend DNS and verify the production domain before accepting real subscribers. The subscription endpoint uses a server-only service-role key and Resend API key; never expose either to the browser.
 
-External provider configuration and a live deployment have not yet been verified.
+Scheduled publication requires `CRON_SECRET` in the deployment environment and a host that supports the configured cron schedule. Apply migration 004 before using article or scheduling features. External provider configuration and a live deployment have not yet been verified.
