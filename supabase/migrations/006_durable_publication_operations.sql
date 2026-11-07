@@ -399,7 +399,7 @@ begin
          or new.cover_image_url in (op.target_pdf_url, op.target_cover_url, op.target_pdf_path, op.target_cover_path)
        )
      ) or (
-       op.source_cleanup_status = 'complete'
+       op.source_cleanup_status in ('pending', 'complete')
        and (
          new.pdf_url in (op.source_pdf_url, op.source_cover_url)
          or new.cover_image_url in (op.source_pdf_url, op.source_cover_url)
