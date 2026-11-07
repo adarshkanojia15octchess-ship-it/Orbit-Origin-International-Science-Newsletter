@@ -4,8 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get("token") || "";
+export async function POST(request: NextRequest) {
+  const form = await request.formData();
+  const token = String(form.get("token") || "");
   if (!/^[a-f0-9]{64}$/i.test(token)) {
     return NextResponse.redirect(new URL("/unsubscribe?status=invalid", request.url));
   }
