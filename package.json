@@ -30,8 +30,6 @@
     "typescript": "^5.7.3"
   },
   "overrides": {
-    "next": {
-      "postcss": "^8.5.32"
-    }
+    "postcss": "^8.5.32"
   }
 }
