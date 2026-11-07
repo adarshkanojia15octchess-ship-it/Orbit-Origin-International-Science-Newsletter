@@ -103,7 +103,15 @@ export async function GET(request: NextRequest) {
         p_lease_seconds: 600,
       },
     );
-    if (startOperationError || startedOperation !== operationId) {
+    let operationStarted = !startOperationError && startedOperation === operationId;
+    if (!operationStarted) {
+      const { data: operationRows } = await admin.rpc(
+        "read_publication_operation",
+        { p_operation_id: operationId },
+      );
+      operationStarted = operationRows?.[0]?.state === "active";
+    }
+    if (!operationStarted) {
       await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
@@ -163,6 +171,13 @@ export async function GET(request: NextRequest) {
         p_operation_id: operationId,
         p_failure_reason: completeError?.message || "Conditional scheduled publication did not commit",
       });
+      const { data: finalOperationRows } = await admin.rpc(
+        "read_publication_operation",
+        { p_operation_id: operationId },
+      );
+      operationCommitted = finalOperationRows?.[0]?.state === "committed";
+    }
+    if (!operationCommitted) {
       await releaseIssueClaim(issue.id);
       issuesFailed += 1;
       continue;
