@@ -105,7 +105,7 @@ export async function publishIssue(formData: FormData) {
     .from("issues")
     .select("id, issue_number, pdf_url, cover_image_url, status")
     .eq("id", id)
-    .eq("status", "draft")
+    .in("status", ["draft", "scheduled"])
     .maybeSingle();
 
   if (readError || !issue || !issue.pdf_url || !issue.cover_image_url) {
@@ -150,10 +150,11 @@ export async function publishIssue(formData: FormData) {
       pdf_url: pdfUrl,
       cover_image_url: coverUrl,
       status: "published",
+      scheduled_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .eq("status", "draft");
+    .in("status", ["draft", "scheduled"]);
 
   if (updateError) {
     await supabase.storage.from("issue-public").remove([pdfPublicPath, coverPublicPath]);
@@ -166,4 +167,165 @@ export async function publishIssue(formData: FormData) {
   revalidatePath("/latest-issue");
   revalidatePath(`/issues/${issue.issue_number}`);
   redirect("/admin?published=1");
+}
+
+
+const issueEditSchema = z.object({
+  issue_id: z.string().uuid(),
+  title: z.string().trim().min(3).max(160),
+  description: z.string().trim().min(10).max(2000),
+  publication_date: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+});
+
+export async function updateIssue(formData: FormData) {
+  const context = await getAdminContext();
+  if (!context) redirect("/admin/login");
+  const parsed = issueEditSchema.safeParse({
+    issue_id: formData.get("issue_id"),
+    title: formData.get("title"),
+    description: formData.get("description"),
+    publication_date: formData.get("publication_date"),
+  });
+  if (!parsed.success) redirect("/admin?error=details");
+
+  const { data: issue, error: readError } = await context.supabase
+    .from("issues")
+    .select("issue_number")
+    .eq("id", parsed.data.issue_id)
+    .maybeSingle();
+  if (readError || !issue) redirect("/admin?error=issue");
+
+  const slug = `${String(issue.issue_number).padStart(3, "0")}-${slugify(parsed.data.title)}`;
+  const { error } = await context.supabase.from("issues").update({
+    title: parsed.data.title,
+    description: parsed.data.description,
+    publication_date: parsed.data.publication_date,
+    slug,
+    updated_at: new Date().toISOString(),
+  }).eq("id", parsed.data.issue_id);
+  if (error) redirect(error.code === "23505" ? "/admin?error=duplicate" : "/admin?error=save");
+
+  revalidatePath("/");
+  revalidatePath("/issues");
+  revalidatePath("/latest-issue");
+  revalidatePath(`/issues/${issue.issue_number}`);
+  redirect("/admin?updated=1");
+}
+
+export async function scheduleIssue(formData: FormData) {
+  const context = await getAdminContext();
+  if (!context) redirect("/admin/login");
+  const id = String(formData.get("issue_id") || "");
+  const scheduledAt = String(formData.get("scheduled_at") || "");
+  if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
+  const date = new Date(scheduledAt);
+  if (!scheduledAt || Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
+    redirect("/admin?error=schedule");
+  }
+  const { data, error } = await context.supabase.from("issues").update({
+    status: "scheduled",
+    scheduled_at: date.toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).eq("status", "draft").select("id").maybeSingle();
+  if (error || !data) redirect("/admin?error=schedule");
+  revalidatePath("/admin");
+  redirect("/admin?scheduled=1");
+}
+
+export async function cancelIssueSchedule(formData: FormData) {
+  const context = await getAdminContext();
+  if (!context) redirect("/admin/login");
+  const id = String(formData.get("issue_id") || "");
+  if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
+  const { data, error } = await context.supabase.from("issues").update({
+    status: "draft",
+    scheduled_at: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).eq("status", "scheduled").select("id").maybeSingle();
+  if (error || !data) redirect("/admin?error=issue");
+  revalidatePath("/admin");
+  redirect("/admin?unscheduled=1");
+}
+
+function getPublicIssueObjectPath(value: string, issueNumber: number) {
+  try {
+    const url = new URL(value);
+    const marker = "/storage/v1/object/public/issue-public/";
+    const markerIndex = url.pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const objectPath = decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+    return objectPath.startsWith(`issues/${issueNumber}/`) && !objectPath.includes("..")
+      ? objectPath
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function unpublishIssue(formData: FormData) {
+  const context = await getAdminContext();
+  if (!context) redirect("/admin/login");
+  const id = String(formData.get("issue_id") || "");
+  if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
+  const { supabase } = context;
+  const { data: issue, error: readError } = await supabase.from("issues")
+    .select("id, issue_number, pdf_url, cover_image_url, status")
+    .eq("id", id).eq("status", "published").maybeSingle();
+  if (readError || !issue || !issue.pdf_url || !issue.cover_image_url) redirect("/admin?error=issue");
+
+  const publicPdfPath = getPublicIssueObjectPath(String(issue.pdf_url), issue.issue_number);
+  const publicCoverPath = getPublicIssueObjectPath(String(issue.cover_image_url), issue.issue_number);
+  if (!publicPdfPath || !publicCoverPath) redirect("/admin?error=unpublish-assets");
+
+  const [pdfResult, coverResult] = await Promise.all([
+    supabase.storage.from("issue-public").download(publicPdfPath),
+    supabase.storage.from("issue-public").download(publicCoverPath),
+  ]);
+  if (pdfResult.error || !pdfResult.data || coverResult.error || !coverResult.data) {
+    redirect("/admin?error=unpublish-assets");
+  }
+
+  const basePath = `issues/${issue.issue_number}/${randomUUID()}`;
+  const draftPdfPath = `${basePath}.pdf`;
+  const extension = publicCoverPath.split(".").pop() || "jpg";
+  const draftCoverPath = `${basePath}-cover.${extension}`;
+  const coverType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
+
+  const [pdfUpload, coverUpload] = await Promise.all([
+    supabase.storage.from("issue-drafts").upload(draftPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: false }),
+    supabase.storage.from("issue-drafts").upload(draftCoverPath, coverResult.data, { contentType: coverType, upsert: false }),
+  ]);
+  if (pdfUpload.error || coverUpload.error) {
+    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
+    redirect("/admin?error=unpublish-assets");
+  }
+
+  const { error: removeError } = await supabase.storage.from("issue-public").remove([publicPdfPath, publicCoverPath]);
+  if (removeError) {
+    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
+    redirect("/admin?error=unpublish-assets");
+  }
+
+  const { error: updateError } = await supabase.from("issues").update({
+    pdf_url: draftPdfPath,
+    cover_image_url: draftCoverPath,
+    status: "draft",
+    scheduled_at: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).eq("status", "published");
+
+  if (updateError) {
+    await Promise.all([
+      supabase.storage.from("issue-public").upload(publicPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: true }),
+      supabase.storage.from("issue-public").upload(publicCoverPath, coverResult.data, { contentType: coverType, upsert: true }),
+    ]);
+    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
+    redirect("/admin?error=unpublish");
+  }
+
+  revalidatePath("/");
+  revalidatePath("/issues");
+  revalidatePath("/latest-issue");
+  revalidatePath(`/issues/${issue.issue_number}`);
+  redirect("/admin?unpublished=1");
 }
