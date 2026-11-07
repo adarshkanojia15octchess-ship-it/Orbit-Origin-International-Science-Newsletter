@@ -1,0 +1,1 @@
+export type Issue={id:string;issue_number:number;title:string;slug:string;description:string;publication_date:string;cover_image_url:string|null;pdf_url:string|null;html_content:string|null;status:"draft"|"scheduled"|"published"|"archived";departments:string[]};
