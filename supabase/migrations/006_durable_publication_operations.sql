@@ -22,6 +22,8 @@ create table if not exists public.publication_operations (
   failure_reason text,
   cleanup_status text not null default 'not_eligible'
     check (cleanup_status in ('not_eligible', 'pending', 'complete')),
+  source_cleanup_status text not null default 'not_required'
+    check (source_cleanup_status in ('not_required', 'pending', 'complete')),
   recovery_attempts integer not null default 0 check (recovery_attempts >= 0),
   last_recovery_at timestamptz,
   created_at timestamptz not null default now(),
@@ -186,6 +188,7 @@ begin
 
   update public.publication_operations set
     state = 'committed',
+    source_cleanup_status = 'pending',
     db_committed_at = now(),
     updated_at = now()
   where operation_id = p_operation_id and state = 'active';
@@ -335,3 +338,37 @@ $$;
 
 revoke all on function public.mark_publication_operation_cleaned(uuid) from public, anon, authenticated;
 grant execute on function public.mark_publication_operation_cleaned(uuid) to service_role;
+
+create or replace function public.mark_publication_source_assets_cleaned(p_operation_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_op public.publication_operations%rowtype;
+begin
+  select * into v_op from public.publication_operations
+   where operation_id = p_operation_id for update;
+  if not found then return false; end if;
+  if v_op.state <> 'committed' then return false; end if;
+  if v_op.source_cleanup_status = 'complete' then return true; end if;
+  if v_op.source_cleanup_status <> 'pending' then return false; end if;
+  if exists (
+    select 1 from public.issues i
+     where i.pdf_url = v_op.source_pdf_url
+        or i.cover_image_url = v_op.source_cover_url
+  ) then
+    return false;
+  end if;
+  update public.publication_operations set
+    source_cleanup_status = 'complete',
+    reconciled_at = now(),
+    updated_at = now()
+  where operation_id = p_operation_id;
+  return true;
+end;
+$$;
+
+revoke all on function public.mark_publication_source_assets_cleaned(uuid) from public, anon, authenticated;
+grant execute on function public.mark_publication_source_assets_cleaned(uuid) to service_role;
