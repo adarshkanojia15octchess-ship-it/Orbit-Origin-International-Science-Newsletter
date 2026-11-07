@@ -54,6 +54,12 @@ STATE="$("${PSQL[@]}" -c "select state from public.publication_operations where 
 assert_eq "$STATE" "committed" "committed operation is durably distinguishable"
 ISSUE_STATUS="$("${PSQL[@]}" -c "select status from public.issues where id='$ISSUE_A'")"
 assert_eq "$ISSUE_STATUS" "published" "issue and operation commit in one database transaction"
+SOURCE_CLEANUP_STATUS="$("${PSQL[@]}" -c "select source_cleanup_status from public.publication_operations where operation_id='$WINNER'")"
+assert_eq "$SOURCE_CLEANUP_STATUS" "pending" "committed publication records source cleanup work"
+SOURCE_CLEANED="$("${PSQL[@]}" -c "select public.mark_publication_source_assets_cleaned('$WINNER')")"
+assert_eq "$SOURCE_CLEANED" "t" "source cleanup completion is durably recorded"
+SOURCE_CLEANED_RETRY="$("${PSQL[@]}" -c "select public.mark_publication_source_assets_cleaned('$WINNER')")"
+assert_eq "$SOURCE_CLEANED_RETRY" "t" "source cleanup completion is idempotent"
 COMMITTED_CLEANUP="$("${PSQL[@]}" -c "select public.mark_publication_cleanup_pending('$WINNER',0)")"
 assert_eq "$COMMITTED_CLEANUP" "f" "committed publication assets are protected"
 
@@ -99,5 +105,9 @@ UNPUBLISH_COMMIT="$("${PSQL[@]}" -c "select public.complete_publication_operatio
 assert_eq "$UNPUBLISH_COMMIT" "t" "unpublish transition commits with operation ledger"
 UNPUBLISHED_STATUS="$("${PSQL[@]}" -c "select status from public.issues where id='$ISSUE_C'")"
 assert_eq "$UNPUBLISHED_STATUS" "draft" "unpublish moves issue to draft atomically"
+UNPUBLISH_SOURCE_CLEANUP="$("${PSQL[@]}" -c "select source_cleanup_status from public.publication_operations where operation_id='$OP_D'")"
+assert_eq "$UNPUBLISH_SOURCE_CLEANUP" "pending" "unpublish records old public asset cleanup"
+UNPUBLISH_CLEANED="$("${PSQL[@]}" -c "select public.mark_publication_source_assets_cleaned('$OP_D')")"
+assert_eq "$UNPUBLISH_CLEANED" "t" "unpublish source cleanup can be reconciled"
 
 echo "Durable publication operation PostgreSQL suite passed."
