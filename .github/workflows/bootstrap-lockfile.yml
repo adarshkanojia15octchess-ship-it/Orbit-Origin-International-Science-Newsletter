@@ -3,13 +3,13 @@ name: Bootstrap npm lockfile
 on:
   push:
     branches: ["feature/**"]
+    paths-ignore: ["package-lock.json"]
 
 permissions:
   contents: write
 
 jobs:
   generate:
-    if: ${{ hashFiles('package-lock.json') == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
