@@ -151,9 +151,15 @@ export async function publishIssue(formData: FormData) {
       p_lease_seconds: 600,
     },
   );
-  if (startOperationError || startedOperation !== publicationOperation) {
-    redirect("/admin?error=publish-conflict");
+  let operationStarted = !startOperationError && startedOperation === publicationOperation;
+  if (!operationStarted) {
+    const { data: operationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: publicationOperation },
+    );
+    operationStarted = operationRows?.[0]?.state === "active";
   }
+  if (!operationStarted) redirect("/admin?error=publish-conflict");
 
   const { error: pdfPublishError } = await supabase.storage
     .from("issue-public")
@@ -191,8 +197,13 @@ export async function publishIssue(formData: FormData) {
       p_operation_id: publicationOperation,
       p_failure_reason: completeError?.message || "Conditional publication transition did not commit",
     });
-    redirect("/admin?error=publish");
+    const { data: finalOperationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: publicationOperation },
+    );
+    operationCommitted = finalOperationRows?.[0]?.state === "committed";
   }
+  if (!operationCommitted) redirect("/admin?error=publish");
 
   const sourceCleanup = await supabase.storage.from("issue-drafts").remove([pdfPath, coverPath]);
   if (!sourceCleanup.error) {
@@ -347,7 +358,15 @@ export async function unpublishIssue(formData: FormData) {
       p_lease_seconds: 600,
     },
   );
-  if (startOperationError || startedOperation !== operationId) redirect("/admin?error=unpublish-conflict");
+  let operationStarted = !startOperationError && startedOperation === operationId;
+  if (!operationStarted) {
+    const { data: operationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: operationId },
+    );
+    operationStarted = operationRows?.[0]?.state === "active";
+  }
+  if (!operationStarted) redirect("/admin?error=unpublish-conflict");
 
   const [pdfUpload, coverUpload] = await Promise.all([
     supabase.storage.from("issue-drafts").upload(draftPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: false }),
@@ -378,8 +397,13 @@ export async function unpublishIssue(formData: FormData) {
       p_operation_id: operationId,
       p_failure_reason: completeError?.message || "Conditional unpublish transition did not commit",
     });
-    redirect("/admin?error=unpublish");
+    const { data: finalOperationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: operationId },
+    );
+    operationCommitted = finalOperationRows?.[0]?.state === "committed";
   }
+  if (!operationCommitted) redirect("/admin?error=unpublish");
 
   // The database no longer references the public objects. Only now may they be
   // removed; if storage cleanup fails, the private copies remain available for
