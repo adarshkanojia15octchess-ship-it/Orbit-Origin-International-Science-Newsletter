@@ -55,8 +55,12 @@ export async function POST(request: NextRequest) {
     return redirectTo(request, "not-configured");
   }
 
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const remoteAddress = forwarded || request.headers.get("x-real-ip") || "unknown";
+  // Vercel overwrites its client-IP headers at the edge to prevent spoofing.
+  // On other hosts, do not trust arbitrary forwarded headers: share the
+  // conservative "unknown" bucket until a trusted-proxy adapter is configured.
+  const remoteAddress = process.env.VERCEL === "1"
+    ? request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || "unknown"
+    : "unknown";
   const rateKey = createHmac("sha256", rateSecret).update(remoteAddress).digest("hex");
 
   try {
