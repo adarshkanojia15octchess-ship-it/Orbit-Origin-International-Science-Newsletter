@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const issueSchema = z.object({
   issue_number: z.coerce.number().int().positive().max(999999),
@@ -100,10 +101,10 @@ export async function publishIssue(formData: FormData) {
   const id = String(formData.get("issue_id") || "");
   if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
 
-  const { supabase } = context;
+  const supabase = createAdminClient();
   const { data: issue, error: readError } = await supabase
     .from("issues")
-    .select("id, issue_number, pdf_url, cover_image_url, status")
+    .select("id, issue_number, pdf_url, cover_image_url, status, updated_at")
     .eq("id", id)
     .in("status", ["draft", "scheduled"])
     .maybeSingle();
@@ -130,42 +131,66 @@ export async function publishIssue(formData: FormData) {
   const coverExtension = coverPath.split(".").pop() || "jpg";
   const coverPublicPath = `${publicPrefix}/cover.${coverExtension}`;
 
+  const pdfUrl = supabase.storage.from("issue-public").getPublicUrl(pdfPublicPath).data.publicUrl;
+  const coverUrl = supabase.storage.from("issue-public").getPublicUrl(coverPublicPath).data.publicUrl;
+  const { data: startedOperation, error: startOperationError } = await supabase.rpc(
+    "begin_publication_operation",
+    {
+      p_operation_id: publicationOperation,
+      p_issue_id: id,
+      p_operation_kind: "manual_publish",
+      p_source_status: issue.status,
+      p_source_pdf_url: pdfPath,
+      p_source_cover_url: coverPath,
+      p_source_updated_at: issue.updated_at,
+      p_target_pdf_path: pdfPublicPath,
+      p_target_cover_path: coverPublicPath,
+      p_target_pdf_url: pdfUrl,
+      p_target_cover_url: coverUrl,
+      p_claim_token: null,
+      p_lease_seconds: 600,
+    },
+  );
+  if (startOperationError || startedOperation !== publicationOperation) {
+    redirect("/admin?error=publish-conflict");
+  }
+
   const { error: pdfPublishError } = await supabase.storage
     .from("issue-public")
     .upload(pdfPublicPath, pdfFile, { contentType: "application/pdf", upsert: true });
-  if (pdfPublishError) redirect("/admin?error=publish-assets");
+  if (pdfPublishError) {
+    await supabase.rpc("fail_publication_operation", { p_operation_id: publicationOperation, p_failure_reason: "PDF upload failed" });
+    redirect("/admin?error=publish-assets");
+  }
 
   const coverType = coverExtension === "png" ? "image/png" : coverExtension === "webp" ? "image/webp" : "image/jpeg";
   const { error: coverPublishError } = await supabase.storage
     .from("issue-public")
     .upload(coverPublicPath, coverFile, { contentType: coverType, upsert: true });
   if (coverPublishError) {
-    await supabase.storage.from("issue-public").remove([pdfPublicPath]);
+    await supabase.rpc("fail_publication_operation", { p_operation_id: publicationOperation, p_failure_reason: "Cover upload failed" });
     redirect("/admin?error=publish-assets");
   }
 
-  const pdfUrl = supabase.storage.from("issue-public").getPublicUrl(pdfPublicPath).data.publicUrl;
-  const coverUrl = supabase.storage.from("issue-public").getPublicUrl(coverPublicPath).data.publicUrl;
-  const { data: published, error: updateError } = await supabase
-    .from("issues")
-    .update({
-      pdf_url: pdfUrl,
-      cover_image_url: coverUrl,
-      status: "published",
-      scheduled_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .in("status", ["draft", "scheduled"])
-    .eq("pdf_url", pdfPath)
-    .eq("cover_image_url", coverPath)
-    .select("id")
-    .maybeSingle();
-
-  if (updateError || !published) {
-    // A competing publisher may have won the conditional transition. The
-    // public object paths are shared and may now be live; preserve them for
-    // the winner and leave draft copies available for recovery.
+  const { data: completed, error: completeError } = await supabase.rpc(
+    "complete_publication_operation",
+    { p_operation_id: publicationOperation },
+  );
+  let operationCommitted = !completeError && completed === true;
+  if (!operationCommitted) {
+    // RPC responses can be lost after PostgreSQL commits. Read the durable
+    // operation row before deciding whether the publication failed.
+    const { data: operationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: publicationOperation },
+    );
+    operationCommitted = operationRows?.[0]?.state === "committed";
+  }
+  if (!operationCommitted) {
+    await supabase.rpc("fail_publication_operation", {
+      p_operation_id: publicationOperation,
+      p_failure_reason: completeError?.message || "Conditional publication transition did not commit",
+    });
     redirect("/admin?error=publish");
   }
 
@@ -275,9 +300,9 @@ export async function unpublishIssue(formData: FormData) {
   if (!context) redirect("/admin/login");
   const id = String(formData.get("issue_id") || "");
   if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
-  const { supabase } = context;
+  const supabase = createAdminClient();
   const { data: issue, error: readError } = await supabase.from("issues")
-    .select("id, issue_number, pdf_url, cover_image_url, status")
+    .select("id, issue_number, pdf_url, cover_image_url, status, updated_at")
     .eq("id", id).eq("status", "published").maybeSingle();
   if (readError || !issue || !issue.pdf_url || !issue.cover_image_url) redirect("/admin?error=issue");
 
@@ -298,31 +323,56 @@ export async function unpublishIssue(formData: FormData) {
   const extension = publicCoverPath.split(".").pop() || "jpg";
   const draftCoverPath = `${basePath}-cover.${extension}`;
   const coverType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
+  const { data: startedOperation, error: startOperationError } = await supabase.rpc(
+    "begin_publication_operation",
+    {
+      p_operation_id: basePath.split("/").pop(),
+      p_issue_id: id,
+      p_operation_kind: "unpublish",
+      p_source_status: "published",
+      p_source_pdf_url: String(issue.pdf_url),
+      p_source_cover_url: String(issue.cover_image_url),
+      p_source_updated_at: issue.updated_at,
+      p_target_pdf_path: draftPdfPath,
+      p_target_cover_path: draftCoverPath,
+      p_target_pdf_url: draftPdfPath,
+      p_target_cover_url: draftCoverPath,
+      p_claim_token: null,
+      p_lease_seconds: 600,
+    },
+  );
+  const operationId = basePath.split("/").pop() as string;
+  if (startOperationError || startedOperation !== operationId) redirect("/admin?error=unpublish-conflict");
 
   const [pdfUpload, coverUpload] = await Promise.all([
     supabase.storage.from("issue-drafts").upload(draftPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: false }),
     supabase.storage.from("issue-drafts").upload(draftCoverPath, coverResult.data, { contentType: coverType, upsert: false }),
   ]);
   if (pdfUpload.error || coverUpload.error) {
-    await supabase.storage.from("issue-drafts").remove([draftPdfPath, draftCoverPath]);
+    await supabase.rpc("fail_publication_operation", {
+      p_operation_id: operationId,
+      p_failure_reason: "One or more draft asset copies failed",
+    });
     redirect("/admin?error=unpublish-assets");
   }
 
-  const { data: unpublished, error: updateError } = await supabase.from("issues").update({
-    pdf_url: draftPdfPath,
-    cover_image_url: draftCoverPath,
-    status: "draft",
-    scheduled_at: null,
-    updated_at: new Date().toISOString(),
-  }).eq("id", id).eq("status", "published").select("id").maybeSingle();
-
-  if (updateError || !unpublished) {
-    // Restore public objects before returning. Keep the newly copied private
-    // files as recovery material if the database result was ambiguous.
-    await Promise.all([
-      supabase.storage.from("issue-public").upload(publicPdfPath, pdfResult.data, { contentType: "application/pdf", upsert: true }),
-      supabase.storage.from("issue-public").upload(publicCoverPath, coverResult.data, { contentType: coverType, upsert: true }),
-    ]);
+  const { data: completed, error: completeError } = await supabase.rpc(
+    "complete_publication_operation",
+    { p_operation_id: operationId },
+  );
+  let operationCommitted = !completeError && completed === true;
+  if (!operationCommitted) {
+    const { data: operationRows } = await supabase.rpc(
+      "read_publication_operation",
+      { p_operation_id: operationId },
+    );
+    operationCommitted = operationRows?.[0]?.state === "committed";
+  }
+  if (!operationCommitted) {
+    await supabase.rpc("fail_publication_operation", {
+      p_operation_id: operationId,
+      p_failure_reason: completeError?.message || "Conditional unpublish transition did not commit",
+    });
     redirect("/admin?error=unpublish");
   }
 
