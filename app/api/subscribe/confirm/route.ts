@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { confirmPendingSubscription } from "@/lib/subscription/confirmation.mjs";
 
 export const runtime = "nodejs";
 
 function confirmationPage(token: string) {
-  // The token is restricted to hexadecimal characters before interpolation.
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -31,12 +30,11 @@ function confirmationPage(token: string) {
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token") || "";
-  if (!/^[a-f0-9]{64}$/i.test(token)) {
+  if (!/^[a-f0-9]{64}$/.test(token)) {
     return NextResponse.redirect(new URL("/subscribe?status=invalid-token", request.url));
   }
 
-  // GET requests must never activate a subscription: mail security scanners
-  // commonly visit links automatically. Activation requires an explicit POST.
+  // Mail scanners may visit links; GET deliberately performs no database write.
   return new NextResponse(confirmationPage(token), {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -57,29 +55,36 @@ export async function POST(request: NextRequest) {
   }
 
   const token = String(form.get("token") || "");
-  if (!/^[a-f0-9]{64}$/i.test(token)) {
+  if (!/^[a-f0-9]{64}$/.test(token)) {
     return NextResponse.redirect(new URL("/subscribe?status=invalid-token", request.url));
   }
 
   try {
     const admin = createAdminClient();
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const { data, error } = await admin
-      .from("subscribers")
-      .update({
-        subscription_status: "active",
-        confirmed_at: new Date().toISOString(),
-        confirmation_token_hash: null,
-        confirmation_expires_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("confirmation_token_hash", tokenHash)
-      .eq("subscription_status", "pending")
-      .gt("confirmation_expires_at", new Date().toISOString())
-      .select("id")
-      .maybeSingle();
+    const result = await confirmPendingSubscription({
+      token,
+      activatePendingByHash: async (tokenHash, now) => {
+        const { data, error } = await admin
+          .from("subscribers")
+          .update({
+            subscription_status: "active",
+            confirmed_at: now.toISOString(),
+            confirmation_token_hash: null,
+            confirmation_expires_at: null,
+            updated_at: now.toISOString(),
+          })
+          .eq("confirmation_token_hash", tokenHash)
+          .eq("subscription_status", "pending")
+          .gt("confirmation_expires_at", now.toISOString())
+          .select("id")
+          .maybeSingle();
 
-    if (error || !data) {
+        if (error) throw error;
+        return Boolean(data);
+      },
+    });
+
+    if (result !== "confirmed") {
       return NextResponse.redirect(new URL("/subscribe?status=invalid-token", request.url));
     }
     return NextResponse.redirect(new URL("/subscribe?status=confirmed", request.url));
