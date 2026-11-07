@@ -57,6 +57,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
         run: bash scripts/test-issue-publication-postgres.sh
 
+      - name: Verify durable publication operation registry in PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
+        run: bash scripts/test-publication-operations-postgres.sh
+
       - name: Validate TypeScript
         run: npm run typecheck
 
