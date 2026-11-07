@@ -90,6 +90,10 @@ CLEANED="$("${PSQL[@]}" -c "select public.mark_publication_operation_cleaned('$O
 assert_eq "$CLEANED" "t" "cleanup completion is recorded after global reference check"
 CLEANED_RETRY="$("${PSQL[@]}" -c "select public.mark_publication_operation_cleaned('$OP_C')")"
 assert_eq "$CLEANED_RETRY" "t" "cleanup completion is idempotent"
+RETIRED_TARGET_GUARD="$("${PSQL[@]}" -c "do \\$\\$ begin update public.issues set cover_image_url='https://storage.invalid/issues/920002/published/$OP_C/edition.pdf' where id='$ISSUE_REF'; raise exception 'expected retired asset guard'; exception when check_violation then null; end \\$\\$; select 'blocked';")"
+assert_eq "$RETIRED_TARGET_GUARD" "blocked" "retired destination cannot be referenced again"
+RETIRED_SOURCE_GUARD="$("${PSQL[@]}" -c "do \\$\\$ begin update public.issues set pdf_url='issues/920001/source.pdf' where id='$ISSUE_REF'; raise exception 'expected retired source guard'; exception when check_violation then null; end \\$\\$; select 'blocked';")"
+assert_eq "$RETIRED_SOURCE_GUARD" "blocked" "cleaned source asset cannot be referenced again"
 
 ISSUE_C="30000000-0000-4000-8000-000000000003"
 OP_D="40000000-0000-4000-8000-000000000004"
