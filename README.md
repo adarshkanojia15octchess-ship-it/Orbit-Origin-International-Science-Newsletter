@@ -19,7 +19,7 @@ Requirements: Node.js 20.9+ and npm.
 1. Clone the repository and install dependencies:
 
    ```bash
-   npm install
+   npm ci
    ```
 
 2. Copy `.env.example` to `.env.local` and configure the public Supabase project URL and anon key.
@@ -52,7 +52,7 @@ Create a Supabase project and configure:
 - `UNSUBSCRIBE_SECRET` and `SUBSCRIPTION_RATE_LIMIT_SECRET` (use independent, high-entropy secrets)
 - `NEXT_PUBLIC_SITE_URL` (the canonical deployed site URL)
 
-Apply `001_initial_schema.sql`, `002_admin_and_issue_storage.sql`, `003_subscription_security.sql`, then `004_editorial_content_and_scheduling.sql`.
+Apply migrations `001` through `005` in numeric order. Migration `005_atomic_issue_publish_claims.sql` adds expiring, row-locked claims for scheduled issue publication; apply it before enabling the cron worker.
 
 ### Provision the administrator
 
@@ -123,6 +123,6 @@ See `.env.example`. Never commit real credentials.
 
 ## Deployment
 
-The application is intended for Vercel or another Next.js-compatible host. Configure all required environment variables in the host, apply all three migrations to the production Supabase project, provision the administrator, configure Resend DNS and verify the production domain before accepting real subscribers. The subscription endpoint uses a server-only service-role key and Resend API key; never expose either to the browser.
+The application is intended for Vercel or another Next.js-compatible host. Configure all required environment variables in the host, apply all five migrations to the production Supabase project, provision the administrator, configure Resend DNS and verify the production domain before accepting real subscribers. The subscription endpoint uses a server-only service-role key and Resend API key; never expose either to the browser.
 
-Scheduled publication requires `CRON_SECRET` in the deployment environment and a host that supports the configured cron schedule. Apply migration 004 before using article or scheduling features. External provider configuration and a live deployment have not yet been verified.
+Scheduled publication requires `CRON_SECRET` in the deployment environment and a host that supports the configured cron schedule. Apply migrations 004 and 005 before using article, scheduling or atomic issue-publication claim features. External provider configuration and a live deployment have not yet been verified.
