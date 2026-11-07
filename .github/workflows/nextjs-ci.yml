@@ -14,6 +14,19 @@ jobs:
     name: Quality checks (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orbit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d orbit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -38,6 +51,11 @@ jobs:
 
       - name: Run automated tests
         run: npm test
+
+      - name: Verify issue publication concurrency in PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
+        run: bash scripts/test-issue-publication-postgres.sh
 
       - name: Validate TypeScript
         run: npm run typecheck
