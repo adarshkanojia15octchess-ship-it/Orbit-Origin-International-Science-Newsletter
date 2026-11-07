@@ -33,8 +33,8 @@ as $$
         or i.publish_claimed_at < p_now - interval '10 minutes'
       )
     order by i.scheduled_at asc
-    for update skip locked
     limit least(greatest(coalesce(p_limit, 20), 1), 100)
+    for update skip locked
   ),
   claimed as (
     update public.issues as i
