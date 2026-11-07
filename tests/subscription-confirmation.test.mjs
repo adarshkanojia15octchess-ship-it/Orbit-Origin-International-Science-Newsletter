@@ -119,3 +119,14 @@ test("HTTP route contract keeps GET read-only and activation in POST", async () 
   assert.match(postBody, /\.eq\("subscription_status",\s*"pending"\)/);
   assert.match(postBody, /\.gt\("confirmation_expires_at"/);
 });
+
+test("subscription rate limiting does not trust arbitrary forwarded headers off Vercel", async () => {
+  const source = await readFile(
+    new URL("../app/api/subscribe/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /process\.env\.VERCEL === "1"/);
+  assert.match(source, /x-vercel-forwarded-for/);
+  assert.doesNotMatch(source, /request\.headers\.get\("x-real-ip"\)/);
+  assert.doesNotMatch(source, /request\.headers\.get\("x-forwarded-for"\)/);
+});
