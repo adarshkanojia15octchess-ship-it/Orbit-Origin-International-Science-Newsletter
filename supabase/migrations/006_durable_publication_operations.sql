@@ -261,8 +261,7 @@ begin
   -- for a future cleanup worker. This function never deletes storage objects.
   if exists (
     select 1 from public.issues i
-     where i.id = v_op.issue_id
-       and (i.pdf_url in (v_op.target_pdf_url, v_op.target_pdf_path)
+     where (i.pdf_url in (v_op.target_pdf_url, v_op.target_pdf_path)
          or i.cover_image_url in (v_op.target_cover_url, v_op.target_cover_path))
   ) then
     return false;
@@ -301,3 +300,38 @@ grant execute on function public.fail_publication_operation(uuid, text) to servi
 grant execute on function public.abandon_expired_publication_operation(uuid, integer) to service_role;
 grant execute on function public.mark_publication_cleanup_pending(uuid, integer) to service_role;
 grant execute on function public.read_publication_operation(uuid) to service_role;
+
+create or replace function public.mark_publication_operation_cleaned(p_operation_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_op public.publication_operations%rowtype;
+begin
+  select * into v_op from public.publication_operations
+   where operation_id = p_operation_id for update;
+  if not found then return false; end if;
+  if v_op.state = 'cleaned' then return true; end if;
+  if v_op.state <> 'cleanup_pending' or v_op.cleanup_status <> 'pending' then return false; end if;
+  -- Recheck every issue immediately before recording cleanup completion.
+  if exists (
+    select 1 from public.issues i
+     where i.pdf_url in (v_op.target_pdf_url, v_op.target_pdf_path)
+        or i.cover_image_url in (v_op.target_cover_url, v_op.target_cover_path)
+  ) then
+    return false;
+  end if;
+  update public.publication_operations set
+    state = 'cleaned',
+    cleanup_status = 'complete',
+    reconciled_at = now(),
+    updated_at = now()
+  where operation_id = p_operation_id;
+  return true;
+end;
+$$;
+
+revoke all on function public.mark_publication_operation_cleaned(uuid) from public, anon, authenticated;
+grant execute on function public.mark_publication_operation_cleaned(uuid) to service_role;
