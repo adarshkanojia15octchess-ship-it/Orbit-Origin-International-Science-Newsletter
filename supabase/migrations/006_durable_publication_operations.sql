@@ -358,7 +358,7 @@ begin
    where operation_id = p_operation_id for update;
   if not found then return false; end if;
   if v_op.state <> 'committed' then return false; end if;
-  if v_op.source_cleanup_status = 'complete' then return true; end if;
+  if v_op.source_cleanup_status in ('pending', 'complete') then return true; end if;
   if v_op.source_cleanup_status <> 'pending' then return false; end if;
   lock table public.issues in share mode;
   if exists (
