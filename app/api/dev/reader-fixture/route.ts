@@ -6,12 +6,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (process.env.NODE_ENV === "production") {
-    return new NextResponse(null, { status: 404 });
-  }
+  if (process.env.NODE_ENV === "production") return new NextResponse(null, { status: 404 });
   try {
     const file = await readFile(join(process.cwd(), "tests", "fixtures", "reader-fixture.pdf"));
-    return new NextResponse(file, {
+    return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Length": String(file.byteLength),

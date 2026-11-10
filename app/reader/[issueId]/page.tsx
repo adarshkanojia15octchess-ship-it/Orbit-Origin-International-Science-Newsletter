@@ -6,26 +6,27 @@ import { isPublishedStorageAsset } from "@/src/editorial/asset-url";
 import { PdfReader } from "@/src/editorial/pdf-reader";
 
 type Props = { params: Promise<{ issueId: string }> };
-
-export async function generateMetadata({ params }: Props) {
-  const { issueId } = await params;
-  return { title: "Edition reader", description: "Read a published ORBIT & ORIGIN edition." };
-}
+export const metadata = { title: "Edition reader", description: "Read a published ORBIT & ORIGIN edition." };
 
 export default async function EditionReaderPage({ params }: Props) {
   const { issueId } = await params;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(issueId)) notFound();
 
-  const db = await createClient();
-  const { data, error } = await db
-    .from("issues")
-    .select("*")
-    .eq("id", issueId)
-    .eq("status", "published")
-    .maybeSingle();
-
-  if (error || !data) notFound();
-  const issue = data as Issue;
+  let data: Issue | null = null;
+  try {
+    const db = await createClient();
+    const result = await db.from("issues").select("*").eq("id", issueId).eq("status", "published").maybeSingle();
+    if (result.error) throw result.error;
+    data = result.data as Issue | null;
+  } catch {
+    return (
+      <main className="oo-reader-page">
+        <div className="oo-reader-heading"><Link href="/issues" className="oo-eyebrow">← The archive</Link><h1>Reader temporarily unavailable.</h1><p className="oo-reader-description">The publication database could not be reached. Please try again shortly.</p></div>
+      </main>
+    );
+  }
+  if (!data) notFound();
+  const issue = data;
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   if (!issue.pdf_url || !isPublishedStorageAsset(issue.pdf_url, projectUrl)) notFound();
 
@@ -38,11 +39,7 @@ export default async function EditionReaderPage({ params }: Props) {
         <p className="oo-reader-description">{issue.description}</p>
         <p className="oo-reader-date">{new Date(issue.publication_date).toLocaleDateString("en-US", { dateStyle: "long" })}</p>
       </div>
-      <PdfReader
-        url={issue.pdf_url}
-        title={issue.title}
-        downloadName={"orbit-and-origin-issue-" + String(issue.issue_number).padStart(3, "0") + ".pdf"}
-      />
+      <PdfReader url={issue.pdf_url} title={issue.title} downloadName={"orbit-and-origin-issue-" + String(issue.issue_number).padStart(3, "0") + ".pdf"}/>
     </article>
   );
 }

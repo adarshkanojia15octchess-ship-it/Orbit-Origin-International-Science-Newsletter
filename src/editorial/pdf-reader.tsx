@@ -150,11 +150,11 @@ export function PdfReader({ url, title, downloadName }: Props) {
   }, [page, pageCount, fit, zoom, stageWidth, stageHeight]);
 
   const previous = useCallback(() => setPage((value) => Math.max(1, value - 1)), []);
-  const next = useCallback(() => setPage((value) => Math.min(pageCount || 1, value + 1)), []);
-  const zoomIn = () => { setFit("manual"); setZoom((value) => Math.min(2.5, Math.round((value + 0.1) * 10) / 10)); };
-  const zoomOut = () => { setFit("manual"); setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10)); };
-  const fitWidth = () => setFit("width");
-  const fitPage = () => setFit("page");
+  const next = useCallback(() => setPage((value) => Math.min(pageCount || 1, value + 1)), [pageCount]);
+  const zoomIn = useCallback(() => { setFit("manual"); setZoom((value) => Math.min(2.5, Math.round((value + 0.1) * 10) / 10)); }, []);
+  const zoomOut = useCallback(() => { setFit("manual"); setZoom((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10)); }, []);
+  const fitWidth = useCallback(() => setFit("width"), []);
+  const fitPage = useCallback(() => setFit("page"), []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -168,7 +168,7 @@ export function PdfReader({ url, title, downloadName }: Props) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [next, previous]);
+  }, [next, previous, zoomIn, zoomOut, fitWidth]);
 
   const fullscreen = async () => {
     if (!stageRef.current) return;
