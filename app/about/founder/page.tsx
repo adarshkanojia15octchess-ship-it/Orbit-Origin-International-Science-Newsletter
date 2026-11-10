@@ -26,6 +26,7 @@ export default function FounderPage() {
             width={400}
             height={509}
             priority
+            unoptimized
             sizes="(max-width: 760px) 78vw, 360px"
           />
           <figcaption>Adarsh Kanojia · Founder &amp; Editor-in-Chief</figcaption>
