@@ -1,93 +1,87 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Issue } from "@/lib/types";
+import { isPublishedStorageAsset } from "@/src/editorial/asset-url";
 
-export const metadata = { title: "Issue Archive" };
-
+export const metadata = { title: "Issue Archive", description: "Browse published editions of ORBIT & ORIGIN." };
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 const departments = [
   { value: "tapestry-of-worlds", label: "Tapestry of Worlds" },
   { value: "frontier-tech", label: "Frontier Tech" },
   { value: "universal-record", label: "The Universal Record" },
-] as const;
+];
 
 export default async function IssuesPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const rawSearch = typeof params.q === "string" ? params.q : "";
-  const search = rawSearch.trim().slice(0, 100);
-  const department = departments.some((item) => item.value === params.department)
-    ? String(params.department)
-    : "";
-  const year = typeof params.year === "string" && /^\d{4}$/.test(params.year)
-    ? Number(params.year)
-    : null;
-
+  const search = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
+  const department = departments.some((item) => item.value === params.department) ? String(params.department) : "";
+  const year = typeof params.year === "string" && /^\d{4}$/.test(params.year) ? Number(params.year) : null;
   let issues: Issue[] = [];
-  let configured = true;
+  let available = true;
+
   try {
     const db = await createClient();
-    let query = db
-      .from("issues")
-      .select("*")
-      .eq("status", "published")
-      .order("publication_date", { ascending: false });
-
-    if (search) query = query.ilike("title", `%${search.replace(/[%_\\]/g, "\\$&")}%`);
+    let query = db.from("issues").select("*").eq("status", "published").order("publication_date", { ascending: false });
+    if (search) query = query.ilike("title", "%" + search.replace(/[%_\\]/g, "\\$&") + "%");
     if (department) query = query.contains("departments", [department]);
     if (year && year >= 1900 && year <= 2099) {
-      query = query
-        .gte("publication_date", `${year}-01-01`)
-        .lte("publication_date", `${year}-12-31`);
+      query = query.gte("publication_date", year + "-01-01").lte("publication_date", year + "-12-31");
     }
-
     const { data, error } = await query;
     if (error) throw error;
     issues = (data || []) as Issue[];
   } catch {
-    configured = false;
+    available = false;
   }
 
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   return (
-    <div className="page-shell">
-      <span className="kicker">The archive</span>
-      <h1>Every edition.<br/><em>A growing record.</em></h1>
-      <p className="muted">Browse published editions of ORBIT &amp; ORIGIN.</p>
-      {!configured && <p className="muted">The archive will connect to the publication database once Supabase is configured.</p>}
-      {configured && (
-        <>
-          <form method="get" action="/issues" className="grid" style={{ gridTemplateColumns: "minmax(180px,2fr) minmax(160px,1fr) minmax(100px,.7fr) auto", alignItems: "end", marginTop: 28 }}>
-            <label className="form-field">Search issue titles
-              <input type="search" name="q" maxLength={100} defaultValue={search} placeholder="Search the archive"/>
-            </label>
-            <label className="form-field">Department
-              <select name="department" defaultValue={department}>
-                <option value="">All departments</option>
-                {departments.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </label>
-            <label className="form-field">Year
-              <input type="number" name="year" min={1900} max={2099} inputMode="numeric" defaultValue={year ?? ""} placeholder="Any year"/>
-            </label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="submit">Filter</button>
-              <Link className="primary-link" href="/issues">Clear</Link>
-            </div>
-          </form>
-          {issues.length === 0 && <p className="muted" style={{ marginTop: 32 }}>No published editions match those filters.</p>}
-        </>
+    <div className="oo-archive">
+      <header className="oo-archive-intro">
+        <span className="oo-eyebrow">THE DIGITAL LIBRARY · EST. 2026</span>
+        <h1>Ideas worth<br/><em>looking closer at.</em></h1>
+        <p>Each edition is a considered record of discovery — from the scale of distant galaxies to the instruments expanding our reach.</p>
+      </header>
+      <section className="oo-archive-tools" aria-label="Filter the archive">
+        <form action="/issues" method="get" className="oo-filter-form">
+          <label>Search editions<input type="search" name="q" defaultValue={search} maxLength={100} placeholder="A title or subject"/></label>
+          <label>Department<select name="department" defaultValue={department}>
+            <option value="">All departments</option>
+            {departments.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+          <label>Year<input type="number" name="year" min={1900} max={2099} defaultValue={year ?? ""} placeholder="Any year"/></label>
+          <button type="submit">Apply filters ↗</button>
+        </form>
+      </section>
+      {!available ? (
+        <p className="oo-archive-state" role="status">The archive is temporarily unavailable. Please return shortly.</p>
+      ) : issues.length === 0 ? (
+        <div className="oo-archive-state"><span className="oo-eyebrow">NO MATCHING EDITIONS</span><h2>The next discovery starts here.</h2><p>There are no published editions matching these filters.</p><Link href="/issues">Clear filters ↗</Link></div>
+      ) : (
+        <section className="oo-issue-grid" aria-label="Published editions">
+          {issues.map((issue) => {
+            const cover = issue.cover_image_url && isPublishedStorageAsset(issue.cover_image_url, projectUrl) ? issue.cover_image_url : null;
+            const pdf = issue.pdf_url && isPublishedStorageAsset(issue.pdf_url, projectUrl) ? issue.pdf_url : null;
+            return (
+              <article className="oo-issue-card" key={issue.id}>
+                <Link href={"/reader/" + issue.id} className="oo-issue-cover" aria-label={"Read " + issue.title}>
+                  {cover ? <span className="oo-cover-image" style={{ backgroundImage: "url(" + JSON.stringify(cover) + ")" }}/> : <span className="oo-cover-placeholder"><span>ORBIT <i>&amp;</i> ORIGIN</span><strong>{String(issue.issue_number).padStart(3, "0")}</strong></span>}
+                  <span className="oo-cover-label">DIGITAL EDITION · {String(issue.issue_number).padStart(3, "0")}</span>
+                </Link>
+                <div className="oo-issue-meta"><span>ISSUE {String(issue.issue_number).padStart(3, "0")}</span><time dateTime={issue.publication_date}>{new Date(issue.publication_date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</time></div>
+                <h2><Link href={"/reader/" + issue.id}>{issue.title}</Link></h2>
+                <p>{issue.description}</p>
+                <div className="oo-department-tags">{issue.departments?.map((item) => <span key={item}>{departments.find((d) => d.value === item)?.label || item}</span>)}</div>
+                <div className="oo-issue-actions">
+                  <Link href={"/reader/" + issue.id}>Read edition <span aria-hidden="true">↗</span></Link>
+                  {pdf && <a href={pdf} download={"orbit-and-origin-" + issue.issue_number + ".pdf"}>Download PDF ↓</a>}
+                </div>
+              </article>
+            );
+          })}
+        </section>
       )}
-      <div className="grid" style={{ marginTop: 40 }}>
-        {issues.map((issue) => (
-          <article className="story-card" key={issue.id}>
-            <span className="kicker">ISSUE {String(issue.issue_number).padStart(3, "0")}</span>
-            <h3>{issue.title}</h3>
-            <p>{issue.description}</p>
-            <p>{new Date(issue.publication_date).toLocaleDateString()}</p>
-            <Link href={`/issues/${issue.issue_number}`}>Read edition ↗</Link>
-          </article>
-        ))}
-      </div>
     </div>
   );
 }
