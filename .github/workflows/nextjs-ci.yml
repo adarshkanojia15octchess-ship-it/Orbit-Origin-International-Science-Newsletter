@@ -1,0 +1,72 @@
+name: Next.js CI
+
+on:
+  push:
+    branches: ["main", "feature/**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality checks (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orbit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d orbit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x]
+    env:
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Report dependency vulnerabilities
+        run: npm audit --audit-level=low || true
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Verify issue publication concurrency in PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
+        run: bash scripts/test-issue-publication-postgres.sh
+
+      - name: Verify durable publication operation registry in PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
+        run: bash scripts/test-publication-operations-postgres.sh
+
+      - name: Validate TypeScript
+        run: npm run typecheck
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build Next.js application
+        run: npm run build
