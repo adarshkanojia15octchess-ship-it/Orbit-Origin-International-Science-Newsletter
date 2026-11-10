@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 
 export const metadata: Metadata = {
   title: "The Founder",
@@ -11,11 +12,24 @@ export default function FounderPage() {
   return (
     <main className="founder-page">
       <header className="founder-intro">
-        <span className="kicker">About ORBIT &amp; ORIGIN</span>
-        <p className="founder-overline">The Founder</p>
-        <h1>Adarsh Kanojia</h1>
-        <p className="founder-role">Founder &amp; Editor-in-Chief, ORBIT &amp; ORIGIN</p>
-        <p className="founder-deck">Student · Independent Science Writer · Science Communicator</p>
+        <div className="founder-intro-copy">
+          <span className="kicker">About ORBIT &amp; ORIGIN</span>
+          <p className="founder-overline">The Founder</p>
+          <h1>Adarsh Kanojia</h1>
+          <p className="founder-role">Founder &amp; Editor-in-Chief, ORBIT &amp; ORIGIN</p>
+          <p className="founder-deck">Student · Independent Science Writer · Science Communicator</p>
+        </div>
+        <figure className="founder-portrait">
+          <Image
+            src="/images/founder-portrait.webp"
+            alt="Portrait of Adarsh Kanojia against a vivid cosmic nebula background"
+            width={400}
+            height={509}
+            priority
+            sizes="(max-width: 760px) 78vw, 360px"
+          />
+          <figcaption>Adarsh Kanojia · Founder &amp; Editor-in-Chief</figcaption>
+        </figure>
       </header>
 
       <section className="founder-biography" aria-labelledby="biography-heading">
