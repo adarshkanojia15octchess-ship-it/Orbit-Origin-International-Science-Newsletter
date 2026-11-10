@@ -270,7 +270,7 @@ export async function scheduleIssue(formData: FormData) {
   // The publishing desk operates on India Standard Time. datetime-local values
   // have no timezone suffix, so attach +05:30 explicitly instead of inheriting
   // the Vercel server's UTC timezone.
-  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(scheduledAt)) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduledAt)) {
     redirect("/admin?error=schedule");
   }
   const date = new Date(`${scheduledAt}:00+05:30`);
