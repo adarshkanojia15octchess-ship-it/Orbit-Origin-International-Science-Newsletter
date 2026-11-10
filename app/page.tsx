@@ -10,6 +10,7 @@ export const metadata = {
 
 export default async function Home() {
   let issue002: Issue | null = null;
+  let issue001: Issue | null = null;
   try {
     const db = await createClient();
     const { data, error } = await db
@@ -20,6 +21,9 @@ export default async function Home() {
       .maybeSingle();
     if (error) throw error;
     issue002 = data as Issue | null;
+    const inaugural = await db.from("issues").select("*").eq("issue_number", 1).eq("status", "published").maybeSingle();
+    if (inaugural.error) throw inaugural.error;
+    issue001 = inaugural.data as Issue | null;
   } catch {
     // Keep the editorial lead readable if the publication database is unavailable.
   }
@@ -48,12 +52,12 @@ export default async function Home() {
             <Link className="primary-link" href={"/reader/" + issue002.id}>Read Issue 002 ↗</Link>
           ) : (
             <div className="lead-issue-status" role="status">
-              <span>Scheduled edition</span>
+              <span>Upcoming edition</span>
               <strong>Publication date: 14 November 2026</strong>
               <Link href="/issues">Browse the issue archive ↗</Link>
             </div>
           )}
-          <p className="lead-issue-inaugural">The inaugural edition, <Link href="/issues/001">Reading the Traces · Issue 001</Link>, remains part of the publication archive.</p>
+          <p className="lead-issue-inaugural">The inaugural edition, {issue001 ? <Link href={"/reader/" + issue001.id}>Reading the Traces · Issue 001</Link> : <Link href="/issues">Reading the Traces · Issue 001</Link>}, belongs in the publication archive.</p>
         </div>
         <div
           className={"lead-issue-art" + (cover ? " has-cover" : "")}
