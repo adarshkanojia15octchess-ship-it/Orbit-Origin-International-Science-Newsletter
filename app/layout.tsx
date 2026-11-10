@@ -14,8 +14,7 @@ export const metadata: Metadata = {
 };
 
 const nav = [
-  ["Latest Issue", "/latest-issue"],
-  ["All Issues", "/issues"],
+  ["Issues", "/issues"],
   ["Articles", "/articles"],
   ["Tapestry of Worlds", "/departments/tapestry-of-worlds"],
   ["Frontier Tech", "/departments/frontier-tech"],
@@ -29,6 +28,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL || "adarshkanojia15octchess@gmail.com";
   return (
     <html lang="en">
       <body>
@@ -38,23 +38,18 @@ export default function RootLayout({
           </Link>
           <nav aria-label="Main navigation">
             {nav.map(([label, href]) => (
-              <Link key={href} href={href}>
-                {label}
-              </Link>
+              <Link key={href} href={href}>{label}</Link>
             ))}
           </nav>
-          <Link className="subscribe-link" href="/subscribe">
-            Subscribe ↗
-          </Link>
+          <Link className="subscribe-link" href="/subscribe">Subscribe ↗</Link>
         </header>
         <main>{children}</main>
         <footer className="site-footer">
           <div>
-            <Link className="wordmark" href="/">
-              ORBIT <span>&amp;</span> ORIGIN
-            </Link>
+            <Link className="wordmark" href="/">ORBIT <span>&amp;</span> ORIGIN</Link>
             <p>Exploring the Universe, Understanding Our Place.</p>
             <p className="footer-founder">Founded and edited by Adarsh Kanojia.</p>
+            <p className="footer-contact"><a href={"mailto:" + contactEmail}>{contactEmail}</a></p>
           </div>
           <div className="footer-links">
             <Link href="/about">About</Link>

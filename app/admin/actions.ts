@@ -267,8 +267,14 @@ export async function scheduleIssue(formData: FormData) {
   const id = String(formData.get("issue_id") || "");
   const scheduledAt = String(formData.get("scheduled_at") || "");
   if (!z.string().uuid().safeParse(id).success) redirect("/admin?error=issue");
-  const date = new Date(scheduledAt);
-  if (!scheduledAt || Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
+  // The publishing desk operates on India Standard Time. datetime-local values
+  // have no timezone suffix, so attach +05:30 explicitly instead of inheriting
+  // the Vercel server's UTC timezone.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(scheduledAt)) {
+    redirect("/admin?error=schedule");
+  }
+  const date = new Date(`${scheduledAt}:00+05:30`);
+  if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
     redirect("/admin?error=schedule");
   }
   const { data, error } = await context.supabase.from("issues").update({

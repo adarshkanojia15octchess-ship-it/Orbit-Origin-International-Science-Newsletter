@@ -204,3 +204,26 @@ button:disabled { opacity:.35; cursor:not-allowed; }
   .founder-portrait { justify-self:start; width:min(78%,360px); }
   .founder-portrait figcaption { text-align:left; }
 }
+
+/* Homepage lead issue */
+.lead-issue { max-width:1500px; margin:0 auto; padding:clamp(54px,8vw,110px) clamp(22px,7vw,100px); display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.78fr); gap:clamp(32px,6vw,84px); align-items:center; border-bottom:1px solid var(--oo-line); }
+.lead-issue-copy { min-width:0; }
+.lead-issue-date { margin:12px 0 0; color:var(--oo-muted); font-size:11px; letter-spacing:.16em; text-transform:uppercase; }
+.lead-issue h2 { margin:14px 0 20px; font-size:clamp(48px,7vw,88px); letter-spacing:-.035em; line-height:.98; }
+.lead-issue-deck { max-width:640px; color:#C4CDD5; font-size:16px; line-height:1.8; }
+.lead-issue-status { display:grid; gap:5px; margin-top:28px; padding-left:16px; border-left:2px solid var(--oo-gold); color:var(--oo-muted); font-size:12px; }
+.lead-issue-status span { color:var(--oo-gold); letter-spacing:.14em; text-transform:uppercase; font-size:9px; }
+.lead-issue-status strong { color:var(--oo-paper); font-weight:500; }
+.lead-issue-status a,.lead-issue-inaugural a { color:var(--oo-gold); text-underline-offset:4px; }
+.lead-issue-inaugural { margin-top:30px; color:var(--oo-muted); font-size:11px; }
+.lead-issue-art { min-height:520px; padding:28px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(213,183,127,.4); background:radial-gradient(ellipse at 52% 40%,#345575 0%,#172E46 42%,#081421 100%); box-shadow:0 28px 70px rgba(0,0,0,.25); background-size:cover; background-position:center; }
+.lead-issue-art.has-cover { background-size:cover; background-position:center; }
+.lead-art-masthead { font-family:var(--oo-serif); letter-spacing:.18em; font-size:14px; }
+.lead-art-masthead i { color:var(--oo-gold); }
+.lead-art-number,.lead-art-foot { color:#D5B77F; font-size:9px; letter-spacing:.2em; }
+.lead-issue-art strong { font-family:var(--oo-serif); font-weight:400; font-size:clamp(48px,6vw,82px); line-height:.88; letter-spacing:.04em; }
+.lead-issue-art strong em { color:var(--oo-gold); }
+.footer-contact { font-size:11px; }
+.footer-contact a { color:var(--oo-gold); text-underline-offset:4px; }
+@media(max-width:900px) { .lead-issue { grid-template-columns:1fr; } .lead-issue-art { min-height:460px; max-width:560px; width:100%; } }
+@media(max-width:620px) { .lead-issue { padding-top:50px; padding-bottom:60px; } .lead-issue-art { min-height:390px; padding:22px; } }

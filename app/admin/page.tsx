@@ -101,7 +101,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
               {(issue.status === "draft" || issue.status === "scheduled") && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
                   <form action={publishIssue}><input type="hidden" name="issue_id" value={issue.id}/><button type="submit">Publish now</button></form>
-                  {issue.status === "draft" && <form action={scheduleIssue} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input type="hidden" name="issue_id" value={issue.id}/><input type="datetime-local" name="scheduled_at" required aria-label="Issue publication date and time"/><button type="submit">Schedule</button></form>}
+                  {issue.status === "draft" && <form action={scheduleIssue} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input type="hidden" name="issue_id" value={issue.id}/><input type="datetime-local" name="scheduled_at" required aria-label="Issue publication date and time" defaultValue={issue.issue_number === 2 ? "2026-11-14T00:00" : undefined}/><small style={{ alignSelf: "center", color: "var(--oo-muted)" }}>Times are India Standard Time (IST).</small><button type="submit">Schedule</button></form>}
                   {issue.status === "scheduled" && <form action={cancelIssueSchedule}><input type="hidden" name="issue_id" value={issue.id}/><button type="submit">Cancel schedule</button></form>}
                 </div>
               )}
