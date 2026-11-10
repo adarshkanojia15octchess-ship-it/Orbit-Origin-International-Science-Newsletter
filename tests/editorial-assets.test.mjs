@@ -10,20 +10,17 @@ const project = "https://example.supabase.co";
 test("accepts a public issue PDF from the configured public bucket", () => {
   assert.equal(isPublishedStorageAsset(project + "/storage/v1/object/public/issue-public/issues/1/published/a/edition.pdf", project), true);
 });
-
 test("rejects private draft object paths", () => {
   assert.equal(isPublishedStorageAsset(project + "/storage/v1/object/public/issue-drafts/issues/1/draft.pdf", project), false);
 });
-
 test("rejects arbitrary external hosts", () => {
   assert.equal(isPublishedStorageAsset("https://evil.example/storage/v1/object/public/issue-public/edition.pdf", project), false);
 });
-
 test("rejects a project URL from another Supabase project", () => {
   assert.equal(isPublishedStorageAsset("https://other.supabase.co/storage/v1/object/public/issue-public/edition.pdf", project), false);
 });
-
-test("rejects malformed URLs and traversal paths", () => {
+test("rejects malformed URLs and plain or encoded traversal paths", () => {
   assert.equal(isPublishedStorageAsset("not a URL", project), false);
   assert.equal(isPublishedStorageAsset(project + "/storage/v1/object/public/issue-public/issues/../secret.pdf", project), false);
+  assert.equal(isPublishedStorageAsset(project + "/storage/v1/object/public/issue-public/issues/%2e%2e/secret.pdf", project), false);
 });

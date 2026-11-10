@@ -64,10 +64,7 @@ export function PdfReader({ url, title, downloadName }: Props) {
     if (!stage) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect) {
-        setStageWidth(rect.width);
-        setStageHeight(rect.height);
-      }
+      if (rect) { setStageWidth(rect.width); setStageHeight(rect.height); }
     });
     observer.observe(stage);
     return () => observer.disconnect();
@@ -75,23 +72,16 @@ export function PdfReader({ url, title, downloadName }: Props) {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError("");
-    setPage(1);
-    setPageCount(0);
+    setLoading(true); setError(""); setPage(1); setPageCount(0);
     loadPdfJs()
       .then((pdfjs) => {
         pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
         return pdfjs.getDocument({ url, withCredentials: false }).promise;
       })
       .then((pdf) => {
-        if (!active) {
-          void pdf.destroy();
-          return;
-        }
+        if (!active) { void pdf.destroy(); return; }
         documentRef.current = pdf;
-        setPageCount(pdf.numPages);
-        setLoading(false);
+        setPageCount(pdf.numPages); setLoading(false);
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -99,10 +89,8 @@ export function PdfReader({ url, title, downloadName }: Props) {
         setLoading(false);
       });
     return () => {
-      active = false;
-      renderRef.current?.cancel();
-      const current = documentRef.current;
-      documentRef.current = null;
+      active = false; renderRef.current?.cancel();
+      const current = documentRef.current; documentRef.current = null;
       if (current) void current.destroy();
     };
   }, [url]);
@@ -110,9 +98,7 @@ export function PdfReader({ url, title, downloadName }: Props) {
   useEffect(() => {
     let active = true;
     const renderPage = async () => {
-      const pdf = documentRef.current;
-      const canvas = canvasRef.current;
-      const stage = stageRef.current;
+      const pdf = documentRef.current, canvas = canvasRef.current, stage = stageRef.current;
       if (!pdf || !canvas || !stage || !pageCount) return;
       renderRef.current?.cancel();
       try {
@@ -121,9 +107,9 @@ export function PdfReader({ url, title, downloadName }: Props) {
         const natural = pdfPage.getViewport({ scale: 1 });
         const availableWidth = Math.max(260, stageWidth - 48);
         const availableHeight = Math.max(320, stageHeight - 48);
-        const fitWidth = availableWidth / natural.width;
-        const fitPage = Math.min(fitWidth, availableHeight / natural.height);
-        const scale = fit === "width" ? fitWidth : fit === "page" ? fitPage : zoom;
+        const fitWidthScale = availableWidth / natural.width;
+        const fitPageScale = Math.min(fitWidthScale, availableHeight / natural.height);
+        const scale = fit === "width" ? fitWidthScale : fit === "page" ? fitPageScale : zoom;
         const viewport = pdfPage.getViewport({ scale });
         const ratio = Math.min(window.devicePixelRatio || 1, 2);
         canvas.width = Math.floor(viewport.width * ratio);
@@ -137,16 +123,11 @@ export function PdfReader({ url, title, downloadName }: Props) {
         renderRef.current = task;
         await task.promise;
       } catch (reason) {
-        if (active && !(reason instanceof Error && reason.name === "RenderingCancelledException")) {
-          setError("A page could not be rendered. Please reload the edition.");
-        }
+        if (active && !(reason instanceof Error && reason.name === "RenderingCancelledException")) setError("A page could not be rendered. Please reload the edition.");
       }
     };
     void renderPage();
-    return () => {
-      active = false;
-      renderRef.current?.cancel();
-    };
+    return () => { active = false; renderRef.current?.cancel(); };
   }, [page, pageCount, fit, zoom, stageWidth, stageHeight]);
 
   const previous = useCallback(() => setPage((value) => Math.max(1, value - 1)), []);
@@ -175,24 +156,19 @@ export function PdfReader({ url, title, downloadName }: Props) {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await stageRef.current.requestFullscreen();
-    } catch {
-      setError("Fullscreen is not available in this browser.");
-    }
+    } catch { setError("Fullscreen is not available in this browser."); }
   };
+  const downloadUrl = url + (url.includes("?") ? "&" : "?") + "download=" + encodeURIComponent(downloadName);
 
   return (
     <section className="oo-reader" aria-label="PDF edition reader">
       <div className="oo-reader-toolbar">
         <div className="oo-reader-group">
           <button type="button" onClick={previous} disabled={loading || page <= 1} aria-label="Previous page">←</button>
-          <label className="oo-page-field">
-            <span className="sr-only">Page number</span>
-            <input aria-label="Page number" type="number" min={1} max={pageCount || 1} value={page} disabled={!pageCount} onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isInteger(value) && value >= 1 && value <= pageCount) setPage(value);
-            }}/>
-            <span>/ {pageCount || "—"}</span>
-          </label>
+          <label className="oo-page-field"><span className="sr-only">Page number</span><input aria-label="Page number" type="number" min={1} max={pageCount || 1} value={page} disabled={!pageCount} onChange={(event) => {
+            const value = Number(event.target.value);
+            if (Number.isInteger(value) && value >= 1 && value <= pageCount) setPage(value);
+          }}/><span>/ {pageCount || "—"}</span></label>
           <button type="button" onClick={next} disabled={loading || page >= pageCount} aria-label="Next page">→</button>
         </div>
         <div className="oo-reader-group">
@@ -204,7 +180,7 @@ export function PdfReader({ url, title, downloadName }: Props) {
           <button type="button" onClick={fitWidth} disabled={loading} aria-pressed={fit === "width"}>Fit width</button>
           <button type="button" onClick={fitPage} disabled={loading} aria-pressed={fit === "page"}>Fit page</button>
           <button type="button" onClick={() => void fullscreen()} aria-label="Toggle fullscreen">⛶</button>
-          <a className="oo-reader-download" href={url} download={downloadName}>Download ↓</a>
+          <a className="oo-reader-download" href={downloadUrl}>Download ↓</a>
         </div>
       </div>
       <div className="oo-reader-stage" ref={stageRef} tabIndex={0} aria-label={title + ". Use left and right arrow keys to change pages."}>
